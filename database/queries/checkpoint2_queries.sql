@@ -23,6 +23,11 @@ SELECT url, result_code
 FROM url_submissions
 WHERE result_code = 'PHISHING';
 
+-- see the count of URLs by result code (how many are legit, phishing, suspicious)
+SELECT result_code, COUNT(*) AS count
+FROM url_submissions
+GROUP BY result_code;
+
 -- see which users have the most submissions and their distributions
 -- SELECT users.name, users.email, COUNT(*) AS submissions
 -- FROM users
@@ -41,26 +46,18 @@ GROUP BY users.user_id, users.name, users.email
 ORDER BY total_submissions DESC;
 
 
-
-
 -- see how many url matches thre are for each rule (good for analysis and supplying chart data)
 SELECT rules.rule_name, COUNT(url_rule_matches.url_id) AS urls_matched
 FROM rules
-LEFT JOIN url_rule_matches 
-ON rules.rule_id = url_rule_matches.rule_id
+LEFT JOIN url_rule_matches ON rules.rule_id = url_rule_matches.rule_id
 GROUP BY rules.rule_id ORDER BY urls_matched DESC;
 
 
--- see the count of URLs by result code (how many are legit, phishing, suspicious)
-SELECT result_code, COUNT(*) AS count
-FROM url_submissions
-GROUP BY result_code;
-
 -- see the votes distribution by the submitted urls (see how many having phishing vs legitimate votes)
 SELECT 
-    url_submissions.url,
-    SUM(CASE WHEN votes.vote_value = 1 THEN 1 ELSE 0 END) AS phishing_votes,
-    SUM(CASE WHEN votes.vote_value = -1 THEN 1 ELSE 0 END) AS legitimate_votes
+url_submissions.url,
+SUM(CASE WHEN votes.vote_value = 1 THEN 1 ELSE 0 END) AS phishing_votes,
+SUM(CASE WHEN votes.vote_value = -1 THEN 1 ELSE 0 END) AS legitimate_votes
 FROM url_submissions
 LEFT JOIN votes ON url_submissions.url_id = votes.url_id
 GROUP BY url_submissions.url_id;
