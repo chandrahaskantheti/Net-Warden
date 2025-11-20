@@ -90,7 +90,6 @@ LEFT JOIN rules r ON urm.rule_id = r.rule_id
 GROUP BY u.url_id, u.url, u.url_domain, u.tld, u.result_code, usr.name, usr.email, u.created_at, u.updated_at
 ORDER BY u.created_at DESC;
 
-SELECT CHAR(10);
 -- Query 2: Find URLs that have been reviewed but have conflicting votes
 -- Use Case: View URL Details, Filter URLs
 SELECT 
@@ -120,7 +119,6 @@ WHERE EXISTS (
 GROUP BY u.url_id, u.url, u.result_code, s.label, s.description
 HAVING COUNT(v.vote_id) > 0;
 
-SELECT CHAR(10);
 -- Query 3: Rank URLs by risk score and show voting agreement
 -- Use Case: Filter and Search URLs, Export Data
 WITH url_risk_scores AS (
@@ -156,7 +154,6 @@ SELECT
 FROM url_risk_scores
 ORDER BY risk_score DESC;
 
-SELECT CHAR(10);
 -- Query 4: Detailed URL analysis report
 -- Use Case: View URL Details, Export Data
 SELECT 
@@ -184,7 +181,6 @@ LEFT JOIN url_score_comparisons usc ON u.url_id = usc.url_id
 GROUP BY u.url_id, u.url, u.url_domain, u.tld, u.result_code, usc.avg_score
 HAVING COUNT(DISTINCT urm.rule_id) > 0 OR COUNT(DISTINCT v.user_id) > 0;
 
-SELECT CHAR(10);
 -- Query 5: Find users who submitted URLs with highest rule match counts
 -- Use Case: Filter and Search URLs
 SELECT 
@@ -209,7 +205,6 @@ GROUP BY usr.user_id, usr.name, usr.email, usr.role
 HAVING COUNT(DISTINCT u.url_id) > 0
 ORDER BY total_rule_matches DESC;
 
-SELECT CHAR(10);
 -- Query 6: Combine phishing and suspicious URLs with different search criteria
 -- Use Case: Filter and Search URLs
 SELECT 
@@ -242,7 +237,6 @@ WHERE u.tld IN ('.tk', '.ml', '.ga') OR r.rule_type = 'tld'
 GROUP BY u.url_id, u.url, u.url_domain, u.result_code
 ORDER BY category, rule_count DESC;
 
-SELECT CHAR(10);
 -- Query 7: URL history with review timeline
 -- Use Case: View URL History
 SELECT 
@@ -264,7 +258,6 @@ WHERE u.created_at >= datetime('now', '-30 days')
     AND (s.reviewer_id IS NOT NULL OR u.result_code IS NOT NULL)
 ORDER BY u.created_at DESC, s.created_at DESC;
 
-SELECT CHAR(10);
 -- Query 8: Compare URL submissions by same user over time
 -- Use Case: View URL History
 SELECT 
@@ -284,7 +277,6 @@ LEFT JOIN url_submissions u2 ON u1.user_id = u2.user_id
 GROUP BY u1.user_id, usr.name
 HAVING COUNT(DISTINCT u1.url_id) > 1;
 
-SELECT CHAR(10);
 -- Query 9: Rule effectiveness analysis - see how well each rule detects phishing
 -- Use Case: Export Data (Analytics)
 SELECT 
@@ -307,7 +299,6 @@ GROUP BY r.rule_id, r.rule_name, r.rule_type, r.risk_level
 HAVING COUNT(DISTINCT urm.url_id) > 0
 ORDER BY urls_matched DESC, phishing_accuracy_percent DESC;
 
-SELECT CHAR(10);
 -- Query 10: Rank URLs by submission date within each TLD
 -- Use Case: Filter and Search URLs
 SELECT 
@@ -323,7 +314,6 @@ FROM url_submissions
 WHERE tld IS NOT NULL
 ORDER BY tld, created_at DESC;
 
-SELECT CHAR(10);
 -- Statement 11: Submit new URL and automatically link matching rules
 -- Use Case: Submit URL for Analysis
 INSERT OR IGNORE INTO url_submissions (user_id, url, url_domain, tld, result_code)
@@ -357,7 +347,6 @@ LEFT JOIN url_rule_matches urm ON u.url_id = urm.url_id
 WHERE u.url = 'https://secure-verify-account-update.tk/login'
 GROUP BY u.url_id, u.url, u.result_code;
 
-SELECT CHAR(10);
 -- Statement 12: Update URL status based on voting agreement
 -- Use Case: Update URL Status, Manage Records
 UPDATE url_submissions
@@ -390,7 +379,6 @@ WHERE updated_at >= datetime('now', '-1 minute')
 ORDER BY updated_at DESC
 LIMIT 5;
 
-SELECT CHAR(10);
 -- Statement 13: Update reviewer information for statuses reviewed by specific admin
 -- Use Case: Manage Records, Update URL Status
 UPDATE statuses
@@ -422,7 +410,6 @@ WHERE s.description LIKE '%Updated by system%'
 ORDER BY s.created_at DESC
 LIMIT 5;
 
-SELECT CHAR(10);
 -- Statement 14: Remove old URL submissions that have no activity
 -- Use Case: Delete URL Record, Manage Records
 DELETE FROM url_submissions
@@ -446,7 +433,6 @@ SELECT 'Statement 14 Result: Old inactive URLs removed' AS status;
 SELECT COUNT(*) AS remaining_urls FROM url_submissions;
 SELECT COUNT(*) AS urls_with_votes FROM url_submissions u WHERE EXISTS (SELECT 1 FROM votes v WHERE v.url_id = u.url_id);
 
-SELECT CHAR(10);
 -- Statement 15: Add new rule and create test matches
 -- Use Case: Manage Records (Admin)
 INSERT OR IGNORE INTO rules (rule_name, description, pattern, rule_type, risk_level, tld)
@@ -469,7 +455,6 @@ LEFT JOIN url_rule_matches urm ON r.rule_id = urm.rule_id
 WHERE r.rule_name = 'Suspicious Subdomain Count'
 GROUP BY r.rule_id, r.rule_name;
 
-SELECT CHAR(10);
 -- Statement 16: Recalculate and update risk scores based on current data
 -- Use Case: Update URL Status
 WITH url_metrics AS (
@@ -514,7 +499,6 @@ FROM url_score_comparisons
 ORDER BY avg_score DESC
 LIMIT 5;
 
-SELECT CHAR(10);
 -- Statement 17: Create status review based on voting agreement
 -- Use Case: Report Suspicious URL, Update URL Status
 INSERT OR IGNORE INTO statuses (url_id, reviewer_id, result_code, label, description)
@@ -547,7 +531,6 @@ WHERE s.label LIKE '%Community%'
 ORDER BY s.created_at DESC
 LIMIT 5;
 
-SELECT CHAR(10);
 -- Statement 18: Clean up unlinked rule matches
 -- Use Case: Manage Records, Delete URL Record
 DELETE FROM url_rule_matches
@@ -567,7 +550,6 @@ SELECT COUNT(*) AS valid_matches FROM url_rule_matches urm
 WHERE EXISTS (SELECT 1 FROM url_submissions u WHERE u.url_id = urm.url_id)
 AND EXISTS (SELECT 1 FROM rules r WHERE r.rule_id = urm.rule_id);
 
-SELECT CHAR(10);
 -- Statement 19: Update user role based on submission activity
 -- Use Case: Manage Records
 UPDATE users
@@ -595,7 +577,6 @@ SELECT user_id, name, email, role
 FROM users 
 ORDER BY user_id;
 
-SELECT CHAR(10);
 -- Statement 20: Submit URL with full analysis pipeline
 -- Use Case: Submit URL for Analysis
 INSERT OR IGNORE INTO url_submissions (user_id, url, url_domain, tld, result_code)
