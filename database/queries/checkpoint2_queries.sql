@@ -23,12 +23,25 @@ SELECT url, result_code
 FROM url_submissions
 WHERE result_code = 'PHISHING';
 
--- see which users have the most submissions
-SELECT users.name, users.email, COUNT(*) AS submissions
+-- see which users have the most submissions and their distributions
+-- SELECT users.name, users.email, COUNT(*) AS submissions
+-- FROM users
+-- JOIN url_submissions u ON users.user_id = u.user_id
+-- GROUP BY users.user_id, users.name, users.email
+-- ORDER BY submissions DESC;
+
+SELECT users.name, users.email, COUNT(url_submissions.url_id) AS total_submissions,
+SUM(CASE WHEN url_submissions.result_code = 'PHISHING' THEN 1 ELSE 0 END) AS phishing_count,
+SUM(CASE WHEN url_submissions.result_code = 'LEGITIMATE' THEN 1 ELSE 0 END) AS legitimate_count,
+SUM(CASE WHEN url_submissions.result_code = 'SUSPICIOUS' THEN 1 ELSE 0 END) AS suspicious_count
+
 FROM users
-JOIN url_submissions u ON users.user_id = u.user_id
+LEFT JOIN url_submissions ON users.user_id = url_submissions.user_id
 GROUP BY users.user_id, users.name, users.email
-ORDER BY submissions DESC;
+ORDER BY total_submissions DESC;
+
+
+
 
 -- see how many url matches thre are for each rule (good for analysis and supplying chart data)
 SELECT rules.rule_name, COUNT(url_rule_matches.url_id) AS urls_matched
