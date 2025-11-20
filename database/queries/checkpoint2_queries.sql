@@ -13,6 +13,11 @@
 
 PRAGMA foreign_keys = ON;
 
+-- see user by role
+SELECT name, role
+FROM users
+ORDER BY role, name;
+
 -- see which URLs are marked as PHISHING
 SELECT url, result_code 
 FROM url_submissions
