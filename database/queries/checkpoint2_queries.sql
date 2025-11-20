@@ -13,8 +13,30 @@
 
 PRAGMA foreign_keys = ON;
 
+-- see which URLs are marked as PHISHING
+SELECT url, result_code 
+FROM url_submissions
+WHERE result_code = 'PHISHING';
+
+
+-- see which users have the most submissions
+SELECT users.name, users.email, COUNT(*) AS submissions
+FROM users
+JOIN url_submissions u ON users.user_id = u.user_id
+GROUP BY users.user_id, users.name, users.email
+ORDER BY submissions DESC;
+
+-- see the count of URLs by result code (how many are legit, phishing, suspicious)
+SELECT result_code, COUNT(*) AS count
+FROM url_submissions
+GROUP BY result_code;
+
+
+
+
 -- Query 1: View URL details with matched rules count and user information
 -- Use Case: View URL Details
+-- this lets us verify that were collecting the data correctly (ie url_domain is getting the correct domain, tld is taking the correct tld, result code is right)
 SELECT 
     u.url_id,
     u.url,
