@@ -28,20 +28,26 @@ SELECT result_code, COUNT(*) AS count
 FROM url_submissions
 GROUP BY result_code;
 
--- see which users have the most submissions and their distributions
+
+
+-- see which user roles have the most submissions and their distributions
+
+-- initial
 -- SELECT users.name, users.email, COUNT(*) AS submissions
 -- FROM users
 -- JOIN url_submissions u ON users.user_id = u.user_id
 -- GROUP BY users.user_id, users.name, users.email
 -- ORDER BY submissions DESC;
 
-SELECT users.user_id, users.name, users.email, COUNT(url_submissions.url_id) AS total_submissions,
+-- after revision
+SELECT users.user_id, users.role, users.name, users.email, COUNT(url_submissions.url_id) AS total_submissions,
 SUM(CASE WHEN url_submissions.result_code = 'PHISHING' THEN 1 ELSE 0 END) AS phishing_count,
 SUM(CASE WHEN url_submissions.result_code = 'LEGITIMATE' THEN 1 ELSE 0 END) AS legitimate_count,
 SUM(CASE WHEN url_submissions.result_code = 'SUSPICIOUS' THEN 1 ELSE 0 END) AS suspicious_count
 
 FROM users
 LEFT JOIN url_submissions ON users.user_id = url_submissions.user_id
+where users.role='user'
 GROUP BY users.user_id, users.name, users.email
 ORDER BY total_submissions DESC;
 
