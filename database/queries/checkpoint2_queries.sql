@@ -35,7 +35,7 @@ GROUP BY result_code;
 -- GROUP BY users.user_id, users.name, users.email
 -- ORDER BY submissions DESC;
 
-SELECT users.name, users.email, COUNT(url_submissions.url_id) AS total_submissions,
+SELECT users.user_id, users.name, users.email, COUNT(url_submissions.url_id) AS total_submissions,
 SUM(CASE WHEN url_submissions.result_code = 'PHISHING' THEN 1 ELSE 0 END) AS phishing_count,
 SUM(CASE WHEN url_submissions.result_code = 'LEGITIMATE' THEN 1 ELSE 0 END) AS legitimate_count,
 SUM(CASE WHEN url_submissions.result_code = 'SUSPICIOUS' THEN 1 ELSE 0 END) AS suspicious_count
@@ -254,25 +254,6 @@ LEFT JOIN users reviewer ON s.reviewer_id = reviewer.user_id
 WHERE u.created_at >= datetime('now', '-30 days')
     AND (s.reviewer_id IS NOT NULL OR u.result_code IS NOT NULL)
 ORDER BY u.created_at DESC, s.created_at DESC;
-
--- Query 8: Compare URL submissions by same user over time
--- Use Case: View URL History
-SELECT 
-    u1.user_id,
-    usr.name AS user_name,
-    COUNT(DISTINCT u1.url_id) AS total_submissions,
-    COUNT(DISTINCT CASE WHEN u1.result_code = 'PHISHING' THEN u1.url_id END) AS phishing_count,
-    COUNT(DISTINCT CASE WHEN u1.result_code = 'LEGITIMATE' THEN u1.url_id END) AS legitimate_count,
-    MIN(u1.created_at) AS first_submission,
-    MAX(u1.created_at) AS last_submission,
-    COUNT(DISTINCT u2.url_id) AS submissions_with_same_tld
-FROM url_submissions u1
-INNER JOIN users usr ON u1.user_id = usr.user_id
-LEFT JOIN url_submissions u2 ON u1.user_id = u2.user_id 
-    AND u1.tld = u2.tld 
-    AND u1.url_id != u2.url_id
-GROUP BY u1.user_id, usr.name
-HAVING COUNT(DISTINCT u1.url_id) > 1;
 
 -- Query 9: Rule effectiveness analysis - see how well each rule detects phishing
 -- Use Case: Export Data (Analytics)
