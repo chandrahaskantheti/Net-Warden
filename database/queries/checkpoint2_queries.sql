@@ -1,10 +1,5 @@
 -- Project Checkpoint 2: SQL Queries and Data Modification Statements
 -- Net-Warden Phishing Detection System
--- Total: 20 SQL statements showing different query formats and structure
-
--- Breakdown:
--- - Queries 1-10: SELECT statements that retrieve and analyze data CRUD ops
--- - Statements 11-20: Statements that add, update, or delete data CRUD
 
 -- These statements support the following features:
 -- - Submit URL, View URL Details, Filter/Search URLs, Export Data
@@ -40,6 +35,7 @@ GROUP BY result_code;
 -- ORDER BY submissions DESC;
 
 -- after revision
+-- using left join because we dont initially want to exclude users with zero submissions
 SELECT users.user_id, users.role, users.name, users.email, COUNT(url_submissions.url_id) AS total_submissions,
 SUM(CASE WHEN url_submissions.result_code = 'PHISHING' THEN 1 ELSE 0 END) AS phishing_count,
 SUM(CASE WHEN url_submissions.result_code = 'LEGITIMATE' THEN 1 ELSE 0 END) AS legitimate_count,
