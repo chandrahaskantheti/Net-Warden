@@ -8,24 +8,24 @@
 
 PRAGMA foreign_keys = ON;
 
--- see user by role
+-- 1.) see user by role
 SELECT name, role
 FROM users
 ORDER BY role, name;
 
--- see which URLs are marked as PHISHING
+-- 2.) see which URLs are marked as PHISHING
 SELECT url, result_code 
 FROM url_submissions
 WHERE result_code = 'PHISHING';
 
--- see the count of URLs by result code (how many are legit, phishing, suspicious)
+-- 3.) see the count of URLs by result code (how many are legit, phishing, suspicious)
 SELECT result_code, COUNT(*) AS count
 FROM url_submissions
 GROUP BY result_code;
 
 
 
--- see which user roles have the most submissions and their distributions
+-- 4.) see which user roles have the most submissions and their distributions
 
 -- initial
 -- SELECT users.name, users.email, COUNT(*) AS submissions
@@ -48,14 +48,14 @@ GROUP BY users.user_id, users.name, users.email
 ORDER BY total_submissions DESC;
 
 
--- see how many url matches thre are for each rule (good for analysis and supplying chart data)
+-- 5.) see how many url matches thre are for each rule (good for analysis and supplying chart data)
 SELECT rules.rule_name, COUNT(url_rule_matches.url_id) AS urls_matched
 FROM rules
 LEFT JOIN url_rule_matches ON rules.rule_id = url_rule_matches.rule_id
 GROUP BY rules.rule_id ORDER BY urls_matched DESC;
 
 
--- see the votes distribution by the submitted urls (see how many having phishing vs legitimate votes)
+-- 6.) see the votes distribution by the submitted urls (see how many having phishing vs legitimate votes)
 SELECT 
 url_submissions.url,
 SUM(CASE WHEN votes.vote_value = 1 THEN 1 ELSE 0 END) AS phishing_votes,
@@ -67,7 +67,7 @@ GROUP BY url_submissions.url_id;
 
 
 
-
+-- 7.)
 -- Use Case: View URL Details
 -- this lets us verify that were collecting the data correctly (ie url_domain is getting the correct domain, tld is taking the correct tld, result code is right)
 SELECT 
@@ -89,7 +89,7 @@ LEFT JOIN rules r ON urm.rule_id = r.rule_id
 GROUP BY u.url_id, u.url, u.url_domain, u.tld, u.result_code, usr.name, usr.email, u.created_at, u.updated_at
 ORDER BY u.created_at DESC;
 
--- Query 2: Find URLs that have been reviewed but have conflicting votes
+-- Query 8: Find URLs that have been reviewed but have conflicting votes
 -- Use Case: View URL Details, Filter URLs
 SELECT 
     u.url_id,
@@ -118,7 +118,7 @@ WHERE EXISTS (
 GROUP BY u.url_id, u.url, u.result_code, s.label, s.description
 HAVING COUNT(v.vote_id) > 0;
 
--- Query 3: Rank URLs by risk score and show voting agreement
+-- Query 9: Rank URLs by risk score and show voting agreement
 -- Use Case: Filter and Search URLs, Export Data
 WITH url_risk_scores AS (
     SELECT 
@@ -153,7 +153,7 @@ SELECT
 FROM url_risk_scores
 ORDER BY risk_score DESC;
 
--- Query 4: Detailed URL analysis report
+-- Query 10: Detailed URL analysis report
 -- Use Case: View URL Details, Export Data
 SELECT 
     u.url_id,
@@ -180,7 +180,7 @@ LEFT JOIN url_score_comparisons usc ON u.url_id = usc.url_id
 GROUP BY u.url_id, u.url, u.url_domain, u.tld, u.result_code, usc.avg_score
 HAVING COUNT(DISTINCT urm.rule_id) > 0 OR COUNT(DISTINCT v.user_id) > 0;
 
--- Query 5: Find users who submitted URLs with highest rule match counts
+-- Query 11: Find users who submitted URLs with highest rule match counts
 -- Use Case: Filter and Search URLs
 SELECT 
     usr.user_id,
@@ -204,7 +204,7 @@ GROUP BY usr.user_id, usr.name, usr.email, usr.role
 HAVING COUNT(DISTINCT u.url_id) > 0
 ORDER BY total_rule_matches DESC;
 
--- Query 6: Combine phishing and suspicious URLs with different search criteria
+-- Query 12: Combine phishing and suspicious URLs with different search criteria
 -- Use Case: Filter and Search URLs
 SELECT 
     'High_Risk_Phishing' AS category,
@@ -236,7 +236,7 @@ WHERE u.tld IN ('.tk', '.ml', '.ga') OR r.rule_type = 'tld'
 GROUP BY u.url_id, u.url, u.url_domain, u.result_code
 ORDER BY category, rule_count DESC;
 
--- Query 7: URL history with review timeline
+-- Query 13: URL history with review timeline
 -- Use Case: View URL History
 SELECT 
     u.url_id,
@@ -257,7 +257,7 @@ WHERE u.created_at >= datetime('now', '-30 days')
     AND (s.reviewer_id IS NOT NULL OR u.result_code IS NOT NULL)
 ORDER BY u.created_at DESC, s.created_at DESC;
 
--- Query 9: Rule effectiveness analysis - see how well each rule detects phishing
+-- Query 14: Rule effectiveness analysis - see how well each rule detects phishing
 -- Use Case: Export Data (Analytics)
 SELECT 
     r.rule_id,
@@ -279,7 +279,7 @@ GROUP BY r.rule_id, r.rule_name, r.rule_type, r.risk_level
 HAVING COUNT(DISTINCT urm.url_id) > 0
 ORDER BY urls_matched DESC, phishing_accuracy_percent DESC;
 
--- Query 10: Rank URLs by submission date within each TLD
+-- Query 15: Rank URLs by submission date within each TLD
 -- Use Case: Filter and Search URLs
 SELECT 
     url_id,
@@ -294,7 +294,7 @@ FROM url_submissions
 WHERE tld IS NOT NULL
 ORDER BY tld, created_at DESC;
 
--- Statement 11: Submit new URL and automatically link matching rules
+-- Statement 16: Submit new URL and automatically link matching rules
 -- Use Case: Submit URL for Analysis
 INSERT OR IGNORE INTO url_submissions (user_id, url, url_domain, tld, result_code)
 VALUES (
@@ -305,6 +305,7 @@ VALUES (
     'PHISHING'
 );
 
+-- 17.)
 -- Insert matching rules for the newly submitted URL
 INSERT OR IGNORE INTO url_rule_matches (url_id, rule_id, match_details)
 SELECT 
@@ -319,6 +320,7 @@ WHERE rule_id IN (
        OR (rule_type = 'keyword' AND pattern LIKE '%verify%')
 );
 
+--18.)
 -- Verification: Show the inserted URL and its matched rules
 SELECT 'Statement 11 Result: New URL submitted with matched rules' AS status;
 SELECT u.url_id, u.url, u.result_code, COUNT(urm.rule_id) AS rules_matched
