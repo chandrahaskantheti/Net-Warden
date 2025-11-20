@@ -1,6 +1,4 @@
--- Seed Data Script for Net-Warden Phishing IDS
--- This script populates the database with sample data for testing and demonstration
--- Total: 50 INSERT statements (not part of the phase 2 requirements)
+-- This is the sample data needed for the database, mentioned in Project2
 
 PRAGMA foreign_keys = ON;
 
