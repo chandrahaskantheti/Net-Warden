@@ -18,7 +18,6 @@ SELECT url, result_code
 FROM url_submissions
 WHERE result_code = 'PHISHING';
 
-
 -- see which users have the most submissions
 SELECT users.name, users.email, COUNT(*) AS submissions
 FROM users
@@ -26,15 +25,32 @@ JOIN url_submissions u ON users.user_id = u.user_id
 GROUP BY users.user_id, users.name, users.email
 ORDER BY submissions DESC;
 
+-- see how many url matches thre are for each rule (good for analysis and supplying chart data)
+SELECT rules.rule_name, COUNT(url_rule_matches.url_id) AS urls_matched
+FROM rules
+LEFT JOIN url_rule_matches 
+ON rules.rule_id = url_rule_matches.rule_id
+GROUP BY rules.rule_id ORDER BY urls_matched DESC;
+
+
 -- see the count of URLs by result code (how many are legit, phishing, suspicious)
 SELECT result_code, COUNT(*) AS count
 FROM url_submissions
 GROUP BY result_code;
 
+-- see the votes distribution by the submitted urls (see how many having phishing vs legitimate votes)
+SELECT 
+    url_submissions.url,
+    SUM(CASE WHEN votes.vote_value = 1 THEN 1 ELSE 0 END) AS phishing_votes,
+    SUM(CASE WHEN votes.vote_value = -1 THEN 1 ELSE 0 END) AS legitimate_votes
+FROM url_submissions
+LEFT JOIN votes ON url_submissions.url_id = votes.url_id
+GROUP BY url_submissions.url_id;
 
 
 
--- Query 1: View URL details with matched rules count and user information
+
+
 -- Use Case: View URL Details
 -- this lets us verify that were collecting the data correctly (ie url_domain is getting the correct domain, tld is taking the correct tld, result code is right)
 SELECT 
