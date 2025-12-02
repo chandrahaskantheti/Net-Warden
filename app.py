@@ -223,12 +223,14 @@ def render_page(title, body):
       :root {
         --bg: #0d1b2a;
         --panel: #13263a;
-        --accent: #8bd8c8;
+        --accent: #6fb1ff;
         --text: #e8f1f2;
         --muted: #a6b7c9;
         --danger: #f56565;
         --success: #5ac8a1;
         --border: #1f3a52;
+        --panel: #13263a;
+        --bg: #0d1b2a;
       }
       * { box-sizing: border-box; }
       body {
@@ -236,11 +238,12 @@ def render_page(title, body):
         font-family: "Gill Sans", "Segoe UI", "Trebuchet MS", sans-serif;
         line-height: 1.5;
         background:
-          radial-gradient(circle at 10% 20%, rgba(79,209,197,0.12), transparent 26%),
-          radial-gradient(circle at 90% 20%, rgba(245,101,101,0.10), transparent 24%),
+          radial-gradient(circle at 10% 20%, rgba(139,216,200,0.14), transparent 28%),
+          radial-gradient(circle at 88% 18%, rgba(88,140,255,0.10), transparent 24%),
           var(--bg);
         color: var(--text);
         min-height: 100vh;
+        animation: fadeIn 0.5s ease-out;
       }
       .topbar {
         position: sticky;
@@ -250,11 +253,11 @@ def render_page(title, body):
         justify-content: space-between;
         align-items: center;
         padding: 14px 24px;
-        background: rgba(13,27,42,0.9);
-        backdrop-filter: blur(6px);
+        background: rgba(13,27,42,0.92);
+        backdrop-filter: blur(4px);
         border-bottom: 1px solid var(--border);
       }
-      .brand { font-weight: 800; letter-spacing: 0.8px; }
+      .brand { font-weight: 800; letter-spacing: 0.8px; color: #ffffff; }
       nav a {
         color: var(--text);
         margin-left: 12px;
@@ -262,26 +265,27 @@ def render_page(title, body):
         padding: 9px 12px;
         border-radius: 12px;
         border: 1px solid transparent;
-        transition: all 0.12s ease;
+        transition: all 0.1s ease;
         font-weight: 600;
       }
       nav a:hover { border-color: var(--accent); color: var(--accent); }
-      nav a.pill { background: var(--accent); color: #0d1b2a; }
+      nav a.pill { background: var(--accent); color: #0d1b2a; border-color: var(--accent); }
       a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
       a:hover { color: #c1f0e4; }
       .shell {
-        max-width: 1100px;
+        max-width: 1040px;
         margin: 26px auto 72px;
         padding: 0 20px;
       }
       h1, h2, h3 { margin: 6px 0 12px; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
       .card {
         background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 16px;
         padding: 18px;
-        box-shadow: 0 10px 24px rgba(0,0,0,0.24);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+        animation: riseIn 0.45s ease;
       }
       .muted { color: var(--muted); font-size: 0.95rem; }
       table {
@@ -327,15 +331,39 @@ def render_page(title, body):
         padding: 12px 14px;
         font-weight: 800;
         cursor: pointer;
-        box-shadow: 0 10px 22px rgba(79,209,197,0.24);
-        transition: transform 0.1s ease;
+        box-shadow: 0 10px 22px rgba(0,0,0,0.2);
+        transition: transform 0.08s ease, box-shadow 0.08s ease;
         font-size: 1rem;
       }
-      button:hover { transform: translateY(-1px); }
+      button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0.24); }
       .stack { display: grid; gap: 12px; }
       .flex { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
       .status-line { display: flex; justify-content: space-between; align-items: center; }
       .error { color: var(--danger); font-weight: 700; }
+      .table-fade tbody tr { animation: fadeSlide 0.3s ease; }
+      .belt { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+      .stat {
+        display: grid;
+        gap: 6px;
+        background: rgba(19,38,58,0.8);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+      }
+      .stat-number { font-size: 1.8rem; font-weight: 800; }
+      .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes riseIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes fadeSlide {
+        from { opacity: 0; transform: translateY(3px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
       @media (max-width: 640px) {
         nav a { margin-left: 6px; padding: 8px 10px; }
         .topbar { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -397,10 +425,33 @@ class NetWardenHandler(BaseHTTPRequestHandler):
 
     def render_dashboard(self):
         data = dashboard_data()
-        counts_html = "".join(
-            f'<div class="card"><div class="muted">{escape(row["result_code"] or "UNKNOWN")}</div><div style="font-size:2rem;font-weight:700;">{row["count"]}</div></div>'
-            for row in data["result_counts"]
-        )
+        count_map = {row["result_code"] or "UNKNOWN": row["count"] for row in data["result_counts"]}
+        stat_cards = f"""
+          <div class="stat">
+            <div class="muted">Total URLs</div>
+            <div class="stat-number">{data['total_urls']}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Phishing</div>
+            <div class="stat-number">{count_map.get('PHISHING', 0)}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Legitimate</div>
+            <div class="stat-number">{count_map.get('LEGITIMATE', 0)}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Suspicious</div>
+            <div class="stat-number">{count_map.get('SUSPICIOUS', 0)}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Users</div>
+            <div class="stat-number">{data['total_users']}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Rules</div>
+            <div class="stat-number">{data['total_rules']}</div>
+          </div>
+        """
         recent_rows = "".join(
             f"""
             <tr>
@@ -416,29 +467,15 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             for row in data["recent_urls"]
         )
         body = f"""
-        <h1>Security Pulse</h1>
-        <p class="muted">Live view of the phishing URL dataset.</p>
-        <div class="grid" style="margin-top:10px;">
-          <div class="card">
-            <div class="muted">Total URLs</div>
-            <div style="font-size:2.4rem;font-weight:700;">{data['total_urls']}</div>
+        <h1 style="margin-bottom:4px;">Security Pulse</h1>
+        <p class="muted">Snapshot of submissions, statuses, and votes.</p>
+        <div class="belt" style="margin:14px 0 18px;">{stat_cards}</div>
+        <div class="card">
+          <div class="section-head">
+            <h2 style="margin:0;">Recent URLs</h2>
+            <a href="/urls" style="text-decoration:none;">View all</a>
           </div>
-          <div class="card">
-            <div class="muted">Users</div>
-            <div style="font-size:2.4rem;font-weight:700;">{data['total_users']}</div>
-          </div>
-          <div class="card">
-            <div class="muted">Rules</div>
-            <div style="font-size:2.4rem;font-weight:700;">{data['total_rules']}</div>
-          </div>
-          {counts_html}
-        </div>
-        <div class="card" style="margin-top:18px;">
-          <div class="status-line">
-            <h2>Recent URLs</h2>
-            <a href="/urls" style="color:var(--accent);text-decoration:none;">View all</a>
-          </div>
-          <table>
+          <table class="table-fade">
             <thead><tr><th>URL</th><th>Status</th><th>Submitter</th><th>Submitted</th><th>Votes</th></tr></thead>
             <tbody>{recent_rows or '<tr><td colspan="5" class="muted">No data yet.</td></tr>'}</tbody>
           </table>
