@@ -258,45 +258,32 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         status_class = "mini-filter col-status" + (" active" if result_code else "")
         submitter_class = "mini-filter col-submitter" + (" active" if user_id else "")
         return f"""
-        <div class="grid">
-          <div class="card">
-            <h2>Filter URLs</h2>
-            <form method="GET" action="{action_path}">
-              <div>
-                <label for="q">Search domain or URL</label>
-                <input type="text" id="q" name="q" value="{escape(q)}" placeholder="paypal, .tk, bit.ly" />
-              </div>
-              { '<input type="hidden" name="view" value="admin" />' if admin_view else '' }
-              <button type="submit">Apply</button>
-            </form>
-          </div>
-          <div class="card" id="submit">
-            <h2>Submit URL</h2>
-            <form method="POST" action="/submit">
-              <div>
-                <label for="url">URL</label>
-                <input type="text" id="url" name="url" required placeholder="https://example.com/login" />
-              </div>
-              <div>
-                <label for="user_id">Submitter</label>
-                <select id="user_id" name="user_id" required>
-                  <option value="">Pick a user</option>
-                  {options}
-                </select>
-              </div>
-              <div>
-                <label for="result_code">Classification</label>
-                <select id="result_code" name="result_code">
-                  <option value="">Unknown</option>
-                  <option value="PHISHING">Phishing</option>
-                  <option value="SUSPICIOUS">Suspicious</option>
-                  <option value="LEGITIMATE">Legitimate</option>
-                </select>
-              </div>
-              <button type="submit">Save</button>
-            </form>
-            {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
-          </div>
+        <div class="card" id="submit">
+          <h2>Submit URL</h2>
+          <form method="POST" action="/submit" class="form-grid">
+            <div>
+              <label for="url">URL</label>
+              <input type="text" id="url" name="url" required placeholder="https://example.com/login" />
+            </div>
+            <div>
+              <label for="user_id">Submitter</label>
+              <select id="user_id" name="user_id" required>
+                <option value="">Pick a user</option>
+                {options}
+              </select>
+            </div>
+            <div>
+              <label for="result_code">Classification</label>
+              <select id="result_code" name="result_code">
+                <option value="">Unknown</option>
+                <option value="PHISHING">Phishing</option>
+                <option value="SUSPICIOUS">Suspicious</option>
+                <option value="LEGITIMATE">Legitimate</option>
+              </select>
+            </div>
+            <button type="submit">Submit</button>
+          </form>
+          {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
         </div>
         <div class="card" style="margin-top:18px;">
           <div class="status-line">
