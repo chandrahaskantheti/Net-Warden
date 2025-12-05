@@ -352,6 +352,51 @@ def render_page(title, body):
       }
       .stat-number { font-size: 1.8rem; font-weight: 800; }
       .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .mini-filters {
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 6px;
+        padding: 10px;
+        background: rgba(19,38,58,0.96);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.32);
+        z-index: 10;
+      }
+      .mini-filters a {
+        display: block;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.88rem;
+        text-decoration: none;
+      }
+      .mini-filters a.active {
+        color: #0d1b2a;
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      th.status-filter { position: relative; }
+      th.status-filter .status-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(19,38,58,0.8);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 6px 10px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      th.status-filter .status-toggle:hover { border-color: var(--accent); color: var(--accent); }
+      th.status-filter.open .mini-filters { display: flex; }
       @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -370,6 +415,30 @@ def render_page(title, body):
       }
     </style>
     """
+    script = """
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const cell = document.querySelector("th.status-filter");
+        if (!cell) return;
+        const toggle = cell.querySelector(".status-toggle");
+        const close = () => cell.classList.remove("open");
+        toggle?.addEventListener("click", (event) => {
+          event.preventDefault();
+          cell.classList.toggle("open");
+        });
+        document.addEventListener("click", (event) => {
+          if (!cell.contains(event.target)) {
+            close();
+          }
+        });
+        window.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            close();
+          }
+        });
+      });
+    </script>
+    """
     return f"""<!DOCTYPE html>
     <html lang="en">
     <head>
@@ -383,6 +452,7 @@ def render_page(title, body):
       <main class="shell">
         {body}
       </main>
+      {script}
     </body>
     </html>
     """
@@ -432,6 +502,15 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 self.end_headers()
         else:
             self.send_error(404, "Not Found")
+
+    def filter_link(self, action_path, q, status):
+        query = {}
+        if q:
+            query["q"] = q
+        if status:
+            query["result_code"] = status
+        qs = urllib.parse.urlencode(query)
+        return f"{action_path}?{qs}" if qs else action_path
 
     def render_url_tools(self, q, result_code, error, action_path):
         rows, users = search_urls(q, result_code)
@@ -508,7 +587,23 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <div class="muted">{len(rows)} rows</div>
           </div>
           <table>
-            <thead><tr><th>URL</th><th>Status</th><th>Submitter</th><th>Submitted</th><th>Votes</th></tr></thead>
+            <thead>
+              <tr>
+                <th>URL</th>
+                <th class="status-filter">
+                  <button type="button" class="status-toggle">Status ▾</button>
+                  <div class="mini-filters">
+                    <a href="{self.filter_link(action_path, q, '')}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING')}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS')}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE')}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
+                  </div>
+                </th>
+                <th>Submitter</th>
+                <th>Submitted</th>
+                <th>Votes</th>
+              </tr>
+            </thead>
             <tbody>{table_rows or '<tr><td colspan="5" class="muted">No URLs found.</td></tr>'}</tbody>
           </table>
         </div>
