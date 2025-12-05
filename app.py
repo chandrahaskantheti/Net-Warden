@@ -271,9 +271,9 @@ def render_page(title, body):
       a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
       a:hover { color: #c1f0e4; }
       .shell {
-        max-width: 1200px;
+        max-width: 1380px;
         margin: 26px auto 72px;
-        padding: 0 24px;
+        padding: 0 28px;
       }
       h1, h2, h3 { margin: 6px 0 12px; }
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
