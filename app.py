@@ -74,7 +74,7 @@ def dashboard_data():
     }
 
 
-def search_urls(query_text="", result_code=""):
+def search_urls(query_text="", result_code="", user_id=None):
     query_text = f"%{query_text.lower()}%" if query_text else "%"
     where_clause = """
         WHERE (LOWER(u.url) LIKE ? OR LOWER(u.url_domain) LIKE ?)
@@ -83,6 +83,9 @@ def search_urls(query_text="", result_code=""):
     if result_code:
         where_clause += " AND u.result_code = ?"
         params.append(result_code)
+    if user_id:
+        where_clause += " AND u.user_id = ?"
+        params.append(user_id)
 
     with get_connection() as conn:
         rows = conn.execute(
@@ -382,8 +385,8 @@ def render_page(title, body):
         background: var(--accent);
         border-color: var(--accent);
       }
-      th.status-filter { position: relative; }
-      th.status-filter .status-toggle {
+      th.mini-filter { position: relative; }
+      th.mini-filter .filter-toggle {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -395,8 +398,8 @@ def render_page(title, body):
         cursor: pointer;
         font-weight: 700;
       }
-      th.status-filter .status-toggle:hover { border-color: var(--accent); color: var(--accent); }
-      th.status-filter.open .mini-filters { display: flex; }
+      th.mini-filter .filter-toggle:hover { border-color: var(--accent); color: var(--accent); }
+      th.mini-filter.open .mini-filters { display: flex; }
       @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -418,22 +421,30 @@ def render_page(title, body):
     script = """
     <script>
       document.addEventListener("DOMContentLoaded", () => {
-        const cell = document.querySelector("th.status-filter");
-        if (!cell) return;
-        const toggle = cell.querySelector(".status-toggle");
-        const close = () => cell.classList.remove("open");
-        toggle?.addEventListener("click", (event) => {
-          event.preventDefault();
-          cell.classList.toggle("open");
+        const filterCells = Array.from(document.querySelectorAll("th.mini-filter"));
+        const closeAll = () => filterCells.forEach(cell => cell.classList.remove("open"));
+
+        filterCells.forEach(cell => {
+          const toggle = cell.querySelector(".filter-toggle");
+          toggle?.addEventListener("click", (event) => {
+            event.preventDefault();
+            const isOpen = cell.classList.contains("open");
+            closeAll();
+            if (!isOpen) {
+              cell.classList.add("open");
+            }
+          });
         });
+
         document.addEventListener("click", (event) => {
-          if (!cell.contains(event.target)) {
-            close();
+          if (!filterCells.some(cell => cell.contains(event.target))) {
+            closeAll();
           }
         });
+
         window.addEventListener("keydown", (event) => {
           if (event.key === "Escape") {
-            close();
+            closeAll();
           }
         });
       });
@@ -503,17 +514,19 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def filter_link(self, action_path, q, status):
+    def filter_link(self, action_path, q, status, user_id):
         query = {}
         if q:
             query["q"] = q
         if status:
             query["result_code"] = status
+        if user_id:
+            query["user_id"] = user_id
         qs = urllib.parse.urlencode(query)
         return f"{action_path}?{qs}" if qs else action_path
 
-    def render_url_tools(self, q, result_code, error, action_path):
-        rows, users = search_urls(q, result_code)
+    def render_url_tools(self, q, result_code, user_id, error, action_path):
+        rows, users = search_urls(q, result_code, user_id)
         options = "".join(
             f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])}</option>'
             for user in users
@@ -590,16 +603,25 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <thead>
               <tr>
                 <th>URL</th>
-                <th class="status-filter">
-                  <button type="button" class="status-toggle">Status ▾</button>
+                <th class="mini-filter">
+                  <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
-                    <a href="{self.filter_link(action_path, q, '')}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
-                    <a href="{self.filter_link(action_path, q, 'PHISHING')}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing</a>
-                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS')}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious</a>
-                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE')}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
+                    <a href="{self.filter_link(action_path, q, '', user_id)}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
                   </div>
                 </th>
-                <th>Submitter</th>
+                <th class="mini-filter">
+                  <button type="button" class="filter-toggle">Submitter ▾</button>
+                  <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
+                    <a href="{self.filter_link(action_path, q, result_code, '')}" {"class=\"active\"" if not user_id else ""}>All submitters</a>
+                    {''.join(
+                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]))}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])}</a>'
+                        for user in users
+                    )}
+                  </div>
+                </th>
                 <th>Submitted</th>
                 <th>Votes</th>
               </tr>
@@ -612,6 +634,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
     def render_dashboard(self, query):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
+        user_id = query.get("user_id", [""])[0]
         error = query.get("error", [""])[0]
         data = dashboard_data()
         count_map = {row["result_code"] or "UNKNOWN": row["count"] for row in data["result_counts"]}
@@ -641,7 +664,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <div class="stat-number">{data['total_rules']}</div>
           </div>
         """
-        tools = self.render_url_tools(q, result_code, error, "/")
+        tools = self.render_url_tools(q, result_code, user_id, error, "/")
         body = f"""
         <h1 style="margin-bottom:4px;">Security Pulse</h1>
         <p class="muted">Snapshot of submissions, statuses, and votes.</p>
@@ -653,8 +676,9 @@ class NetWardenHandler(BaseHTTPRequestHandler):
     def render_urls(self, query):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
+        user_id = query.get("user_id", [""])[0]
         error = query.get("error", [""])[0]
-        body = self.render_url_tools(q, result_code, error, "/urls")
+        body = self.render_url_tools(q, result_code, user_id, error, "/urls")
         self.respond_html(render_page("URLs", body))
 
     def render_url_detail(self, url_id):
