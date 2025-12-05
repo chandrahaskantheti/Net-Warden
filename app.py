@@ -310,7 +310,21 @@ class NetWardenHandler(BaseHTTPRequestHandler):
           <table>
             <thead>
               <tr>
-                <th class="col-url">URL</th>
+                <th class="mini-filter col-url">
+                  <button type="button" class="filter-toggle">URL ▾</button>
+                  <div class="mini-filters">
+                    <form method="GET" action="{action_path}" style="display:grid; gap:8px;">
+                      <input type="text" name="q" value="{escape(q)}" placeholder="Search domain or URL" />
+                      {f'<input type="hidden" name="result_code" value="{escape(result_code)}" />' if result_code else ''}
+                      {f'<input type="hidden" name="user_id" value="{escape(user_id)}" />' if user_id else ''}
+                      { '<input type="hidden" name="view" value="admin" />' if admin_view else '' }
+                      <div class="flex" style="justify-content: flex-end; gap:8px;">
+                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, {'view': 'admin'} if admin_view else None)}">Clear</a>
+                        <button type="submit" class="reset-link enabled" style="border:none;">Apply</button>
+                      </div>
+                    </form>
+                  </div>
+                </th>
                 <th class="{status_class}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">

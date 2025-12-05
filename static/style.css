@@ -169,6 +169,7 @@ button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0
   border-radius: 12px;
   box-shadow: 0 10px 24px rgba(0,0,0,0.32);
   z-index: 10;
+  min-width: 220px;
 }
 .mini-filters a {
   display: block;
