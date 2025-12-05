@@ -214,6 +214,16 @@ th.mini-filter.active .filter-toggle {
   pointer-events: none;
   cursor: not-allowed;
 }
+.reset-link.export {
+  background: linear-gradient(135deg, #f7c266, #d78728);
+  border-color: #e9a23a;
+  color: #0d1b2a;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+}
+.reset-link.export:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(0,0,0,0.24);
+}
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

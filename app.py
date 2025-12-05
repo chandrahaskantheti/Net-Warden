@@ -11,8 +11,10 @@ No external dependencies required.
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import html
+import io
 import os
 from pathlib import Path
+import csv
 import sys
 import urllib.parse
 
@@ -168,7 +170,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def filter_link(self, action_path, q, status, user_id):
+    def filter_link(self, action_path, q, status, user_id, extra_params=None):
         query = {}
         if q:
             query["q"] = q
@@ -176,6 +178,8 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             query["result_code"] = status
         if user_id:
             query["user_id"] = user_id
+        if extra_params:
+            query.update(extra_params)
         qs = urllib.parse.urlencode(query)
         return f"{action_path}?{qs}" if qs else action_path
 
@@ -201,6 +205,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         )
         has_filters = bool(q or result_code or user_id)
         reset_href = action_path
+        export_href = self.filter_link(action_path, q, result_code, user_id, {"export": "1"})
         return f"""
         <div class="grid">
           <div class="card">
@@ -256,6 +261,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <div class="flex" style="gap:10px; align-items:center;">
               <div class="muted">{len(rows)} rows</div>
               <a class="reset-link { 'enabled' if has_filters else 'disabled'}" href="{reset_href if has_filters else '#'}">Reset</a>
+              <a class="reset-link export enabled" href="{export_href}">Export</a>
             </div>
           </div>
           <table>
@@ -294,7 +300,12 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
         user_id = query.get("user_id", [""])[0]
+        export = query.get("export", [""])[0]
         error = query.get("error", [""])[0]
+        if export:
+            rows, _users = search_urls(q, result_code, user_id)
+            self.export_csv(rows)
+            return
         data = dashboard_data()
         count_map = {row["result_code"] or "UNKNOWN": row["count"] for row in data["result_counts"]}
         stat_cards = f"""
@@ -427,6 +438,29 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+    def export_csv(self, rows):
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["URL", "Domain", "TLD", "Status", "Submitter", "Submitted", "Phishing votes", "Legitimate votes"])
+        for row in rows:
+            writer.writerow([
+                row["url"],
+                row["url_domain"],
+                row["tld"],
+                row["result_code"],
+                row["submitter"],
+                row["created_at"],
+                row["phishing_votes"],
+                row["legitimate_votes"],
+            ])
+        data = output.getvalue().encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", "attachment; filename=\"net-warden-urls.csv\"")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def main():
