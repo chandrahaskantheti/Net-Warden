@@ -51,9 +51,9 @@ def format_datetime(value):
 def render_page(title, body, admin_view=False):
     nav = f"""
     <header class="topbar">
-      <div class="brand">Net-Warden</div>
+      <div class="brand"><a class="brand-link" href="/">Net-Warden</a></div>
       <nav>
-        <a href="/" {'class="active"' if not admin_view else ''}>Dashboard</a>
+        <a href="/" {'class="active"' if not admin_view else ''}>User View</a>
         <a href="/?view=admin" {'class="active"' if admin_view else ''}>Admin View</a>
       </nav>
     </header>

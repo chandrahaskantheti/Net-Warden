@@ -36,6 +36,8 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .brand { font-weight: 800; letter-spacing: 0.8px; color: #ffffff; }
+.brand a.brand-link { color: inherit; text-decoration: none; }
+.brand a.brand-link:hover { color: var(--accent); }
 nav a {
   color: var(--text);
   margin-left: 12px;
