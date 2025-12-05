@@ -281,7 +281,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <option value="LEGITIMATE">Legitimate</option>
               </select>
             </div>
-            <button type="submit">Submit</button>
+            <button type="submit" class="action-button">Submit</button>
           </form>
           {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
         </div>
