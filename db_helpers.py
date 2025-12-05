@@ -258,16 +258,14 @@ def url_details(url_id: int):
     }
 
 
-def insert_submission(form):
+def insert_submission(form, submitter_id: int):
     import urllib.parse
 
     raw_url = form.get("url", [""])[0].strip()
     if not raw_url:
         return False, "URL is required."
-    try:
-        user_id = int(form.get("user_id", [0])[0])
-    except ValueError:
-        return False, "Invalid user."
+    if not submitter_id:
+        return False, "Authentication required."
     result_code = form.get("result_code", ["SUSPICIOUS"])[0] or None
     domain, tld = parse_url_parts(raw_url)
 
@@ -279,7 +277,7 @@ def insert_submission(form):
                 VALUES (?, ?, ?, ?, ?)
                 """
                 ,
-                (user_id, raw_url, domain, tld, result_code),
+                (submitter_id, raw_url, domain, tld, result_code),
             )
             conn.commit()
         except sqlite3.IntegrityError as exc:

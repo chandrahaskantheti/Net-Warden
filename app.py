@@ -175,10 +175,12 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         self.current_user = self.get_current_user()
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/submit":
+            if not self.require_login(next_url=self.headers.get("Referer", "/")):
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode()
             form = urllib.parse.parse_qs(body)
-            ok, result = insert_submission(form)
+            ok, result = insert_submission(form, self.current_user["user_id"])
             if ok:
                 self.send_response(303)
                 self.send_header("Location", f"/url/{result}")
@@ -249,10 +251,6 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         rows, users = search_urls(q, result_code, user_id)
         status_totals = status_counts(q, user_id)
         user_totals = user_counts(q, result_code)
-        options = "".join(
-            f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</option>'
-            for user in users
-        )
         table_rows = ""
         for row in rows:
             action_cell = ""
@@ -277,8 +275,50 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               {action_cell}
             </tr>
             """
-        has_filters = bool(q or result_code or user_id)
         view_params = {"view": "admin"} if admin_view else None
+        current_link = self.filter_link(action_path, q, result_code, user_id, view_params)
+        login_href = "/login"
+        safe_next = self.clean_next_target(current_link)
+        if safe_next and safe_next != "/":
+            login_href = f"/login?next={urllib.parse.quote(safe_next, safe='/?:=&%')}"
+        if self.current_user:
+            submitter_name = escape(self.current_user["name"])
+            submitter_role = escape(self.current_user["role"])
+            submit_block = f"""
+            <div class="card" id="submit">
+              <h2>Submit URL</h2>
+              <form method="POST" action="/submit" class="form-grid">
+                <input type="hidden" name="user_id" value="{escape(self.current_user['user_id'])}" />
+                <div>
+                  <label for="url">URL</label>
+                  <input type="text" id="url" name="url" required placeholder="https://example.com/login" />
+                </div>
+                <div>
+                  <label>Submitter</label>
+                  <div class="submitter-pill">{submitter_name} <span class="muted">({submitter_role})</span></div>
+                </div>
+                <div>
+                  <label for="result_code">Classification</label>
+                  <select id="result_code" name="result_code">
+                    <option value="">Unknown</option>
+                    <option value="PHISHING">Phishing</option>
+                    <option value="SUSPICIOUS">Suspicious</option>
+                    <option value="LEGITIMATE">Legitimate</option>
+                  </select>
+                </div>
+                <button type="submit" class="action-button">Submit</button>
+              </form>
+              {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
+            </div>
+            """
+        else:
+            submit_block = f"""
+            <div class="card" id="submit">
+              <h2>Submit URL</h2>
+              <p class="muted">Please <a href="{login_href}">log in</a> to submit URLs for review.</p>
+            </div>
+            """
+        has_filters = bool(q or result_code or user_id)
         active_attr = 'class="active"'
         reset_href = self.filter_link(action_path, "", "", "", view_params)
         extra = {"export": "1"}
@@ -288,33 +328,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         status_class = "mini-filter col-status" + (" active" if result_code else "")
         submitter_class = "mini-filter col-submitter" + (" active" if user_id else "")
         return f"""
-        <div class="card" id="submit">
-          <h2>Submit URL</h2>
-          <form method="POST" action="/submit" class="form-grid">
-            <div>
-              <label for="url">URL</label>
-              <input type="text" id="url" name="url" required placeholder="https://example.com/login" />
-            </div>
-            <div>
-              <label for="user_id">Submitter</label>
-              <select id="user_id" name="user_id" required>
-                <option value="">Pick a user</option>
-                {options}
-              </select>
-            </div>
-            <div>
-              <label for="result_code">Classification</label>
-              <select id="result_code" name="result_code">
-                <option value="">Unknown</option>
-                <option value="PHISHING">Phishing</option>
-                <option value="SUSPICIOUS">Suspicious</option>
-                <option value="LEGITIMATE">Legitimate</option>
-              </select>
-            </div>
-            <button type="submit" class="action-button">Submit</button>
-          </form>
-          {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
-        </div>
+        {submit_block}
         <div class="card" style="margin-top:18px;">
           <div class="status-line">
             <h2>Results</h2>
@@ -629,6 +643,12 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             self.redirect_to_login(safe_path)
         else:
             self.send_error(403, "Admin privileges required")
+        return False
+
+    def require_login(self, next_url="/"):
+        if self.current_user:
+            return True
+        self.redirect_to_login(next_url)
         return False
 
     def get_current_user(self):

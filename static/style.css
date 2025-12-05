@@ -181,6 +181,16 @@ button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0
   border-color: #c1f0e4;
   background: #c1f0e4;
 }
+.submitter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(111,177,255,0.12);
+  border: 1px solid rgba(111,177,255,0.35);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 700;
+}
 .belt { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .stat {
   display: grid;
