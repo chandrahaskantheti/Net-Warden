@@ -93,6 +93,52 @@ def search_urls(query_text: str = "", result_code: str = "", user_id: Optional[s
     return rows, users
 
 
+def status_counts(query_text: str = "", user_id: Optional[str] = None):
+    query_text = f"%{query_text.lower()}%" if query_text else "%"
+    where_clause = """
+        WHERE (LOWER(u.url) LIKE ? OR LOWER(u.url_domain) LIKE ?)
+    """
+    params = [query_text, query_text]
+    if user_id:
+        where_clause += " AND u.user_id = ?"
+        params.append(user_id)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT u.result_code, COUNT(*) as count
+            FROM url_submissions u
+            {where_clause}
+            GROUP BY u.result_code
+            """
+            ,
+            params,
+        ).fetchall()
+    return {row["result_code"] or "": row["count"] for row in rows}
+
+
+def user_counts(query_text: str = "", result_code: str = ""):
+    query_text = f"%{query_text.lower()}%" if query_text else "%"
+    where_clause = """
+        WHERE (LOWER(u.url) LIKE ? OR LOWER(u.url_domain) LIKE ?)
+    """
+    params = [query_text, query_text]
+    if result_code:
+        where_clause += " AND u.result_code = ?"
+        params.append(result_code)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT u.user_id, COUNT(*) as count
+            FROM url_submissions u
+            {where_clause}
+            GROUP BY u.user_id
+            """
+            ,
+            params,
+        ).fetchall()
+    return {row["user_id"]: row["count"] for row in rows}
+
+
 def url_details(url_id: int):
     with get_connection() as conn:
         url_row = conn.execute(

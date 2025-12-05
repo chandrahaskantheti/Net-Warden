@@ -25,6 +25,8 @@ from db_helpers import (
     delete_submission,
     insert_submission,
     search_urls,
+    status_counts,
+    user_counts,
     url_details,
 )
 
@@ -216,8 +218,10 @@ class NetWardenHandler(BaseHTTPRequestHandler):
 
     def render_url_tools(self, q, result_code, user_id, error, action_path, admin_view=False):
         rows, users = search_urls(q, result_code, user_id)
+        status_totals = status_counts(q, user_id)
+        user_totals = user_counts(q, result_code)
         options = "".join(
-            f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])}</option>'
+            f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</option>'
             for user in users
         )
         table_rows = ""
@@ -310,18 +314,18 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <th class="{status_class}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
-                    <a href="{self.filter_link(action_path, q, '', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
-                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing</a>
-                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious</a>
-                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
+                    <a href="{self.filter_link(action_path, q, '', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
                   </div>
                 </th>
                 <th class="{submitter_class}">
                   <button type="button" class="filter-toggle">Submitter ▾</button>
                   <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
-                    <a href="{self.filter_link(action_path, q, result_code, '', {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not user_id else ""}>All submitters</a>
+                    <a href="{self.filter_link(action_path, q, result_code, '', {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
                     {''.join(
-                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])}</a>'
+                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
                         for user in users
                     )}
                   </div>
