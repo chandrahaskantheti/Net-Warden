@@ -264,10 +264,14 @@ def insert_submission(form, submitter_id: int):
     raw_url = form.get("url", [""])[0].strip()
     if not raw_url:
         return False, "URL is required."
+    if len(raw_url) > 2048 or any(ch in raw_url for ch in ("\n", "\r", ";")):
+        return False, "URL contains invalid characters."
     if not submitter_id:
         return False, "Authentication required."
     result_code = form.get("result_code", ["SUSPICIOUS"])[0] or None
     domain, tld = parse_url_parts(raw_url)
+    if not domain:
+        return False, "Could not determine domain for URL."
 
     with get_connection() as conn:
         try:

@@ -566,8 +566,8 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         email = form.get("email", [""])[0].strip()
         password = form.get("password", [""])[0]
         next_target = form.get("next", [""])[0]
-        if not email or not password:
-            self.render_login({"next": [next_target]}, error_message="Email and password are required.", email_value=email)
+        if not password or len(password) > 256 or any(ord(ch) < 32 for ch in password):
+            self.render_login({"next": [next_target]}, error_message="Password cannot be empty or contain control characters.", email_value=email)
             return
         user = verify_user_credentials(email, password)
         if not user:
