@@ -546,36 +546,12 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <div class="stat-number">{data['total_rules']}</div>
           </div>
         """
-        recent_rows = "".join(
-            f"""
-            <tr>
-              <td><a href="/url/{row['url_id']}">{escape(row['url'])}</a>
-                <div class="muted">{escape(row['url_domain'])}</div>
-              </td>
-              <td>{self.render_status_badge(row['result_code'])}</td>
-              <td>{escape(row['submitter'])}</td>
-              <td>{format_datetime(row['created_at'])}</td>
-              <td class="muted">+{row['phishing_votes']} / -{row['legitimate_votes']}</td>
-            </tr>
-            """
-            for row in data["recent_urls"]
-        )
         tools = self.render_url_tools(q, result_code, error, "/")
         body = f"""
         <h1 style="margin-bottom:4px;">Security Pulse</h1>
         <p class="muted">Snapshot of submissions, statuses, and votes.</p>
         <div class="belt" style="margin:14px 0 18px;">{stat_cards}</div>
         {tools}
-        <div class="card">
-          <div class="section-head">
-            <h2 style="margin:0;">Recent URLs</h2>
-            <a href="/urls" style="text-decoration:none;">View all</a>
-          </div>
-          <table class="table-fade">
-            <thead><tr><th>URL</th><th>Status</th><th>Submitter</th><th>Submitted</th><th>Votes</th></tr></thead>
-            <tbody>{recent_rows or '<tr><td colspan="5" class="muted">No data yet.</td></tr>'}</tbody>
-          </table>
-        </div>
         """
         self.respond_html(render_page("Net-Warden Dashboard", body))
 
