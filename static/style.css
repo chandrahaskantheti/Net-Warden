@@ -71,12 +71,18 @@ table {
   border-collapse: collapse;
   margin-top: 10px;
   font-size: 1rem;
+  table-layout: fixed;
 }
 th, td {
   padding: 12px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
 }
+th.col-url, td.col-url { width: 42%; }
+th.col-status, td.col-status { width: 16%; }
+th.col-submitter, td.col-submitter { width: 18%; }
+th.col-date, td.col-date { width: 14%; }
+th.col-votes, td.col-votes { width: 10%; }
 tr:nth-child(even) { background: rgba(19,38,58,0.4); }
 th { color: var(--muted); font-size: 0.95rem; font-weight: 700; }
 .pill-badge {
