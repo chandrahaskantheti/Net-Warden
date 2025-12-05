@@ -188,6 +188,32 @@ th.mini-filter.active .filter-toggle {
   border-color: #6ba43a;
   color: #0d1b2a;
 }
+.reset-link {
+  text-decoration: none;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-weight: 700;
+  transition: all 0.12s ease;
+  border: 1px solid transparent;
+}
+.reset-link.enabled {
+  background: linear-gradient(135deg, #7fb1d4, #4f82a8);
+  color: #0d1b2a;
+  border-color: #6fb1ff;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+}
+.reset-link.enabled:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(0,0,0,0.24);
+}
+.reset-link.disabled {
+  color: var(--muted);
+  background: rgba(19,38,58,0.6);
+  border-color: var(--border);
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: not-allowed;
+}
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

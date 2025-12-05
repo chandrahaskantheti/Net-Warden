@@ -199,6 +199,8 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             """
             for row in rows
         )
+        has_filters = bool(q or result_code or user_id)
+        reset_href = action_path
         return f"""
         <div class="grid">
           <div class="card">
@@ -251,7 +253,10 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         <div class="card" style="margin-top:18px;">
           <div class="status-line">
             <h2>Results</h2>
-            <div class="muted">{len(rows)} rows</div>
+            <div class="flex" style="gap:10px; align-items:center;">
+              <div class="muted">{len(rows)} rows</div>
+              <a class="reset-link { 'enabled' if has_filters else 'disabled'}" href="{reset_href if has_filters else '#'}">Reset</a>
+            </div>
           </div>
           <table>
             <thead>
