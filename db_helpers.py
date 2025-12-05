@@ -10,6 +10,7 @@ DB_PATH = BASE_DIR / "database" / "net_warden.db"
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -183,3 +184,17 @@ def insert_submission(form):
             "SELECT url_id FROM url_submissions WHERE url = ?", (raw_url,)
         ).fetchone()[0]
     return True, new_id
+
+
+def delete_submission(url_id: int):
+    with get_connection() as conn:
+        try:
+            conn.execute("DELETE FROM votes WHERE url_id = ?", (url_id,))
+            conn.execute("DELETE FROM statuses WHERE url_id = ?", (url_id,))
+            conn.execute("DELETE FROM url_rule_matches WHERE url_id = ?", (url_id,))
+            conn.execute("DELETE FROM url_score_comparisons WHERE url_id = ?", (url_id,))
+            conn.execute("DELETE FROM url_submissions WHERE url_id = ?", (url_id,))
+            conn.commit()
+        except sqlite3.Error as exc:
+            return False, f"Could not delete URL: {exc}"
+    return True, None

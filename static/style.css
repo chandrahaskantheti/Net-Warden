@@ -46,6 +46,7 @@ nav a {
   transition: all 0.1s ease;
   font-weight: 600;
 }
+nav a.active { border-color: var(--accent); color: var(--accent); }
 nav a:hover { border-color: var(--accent); color: var(--accent); }
 nav a.pill { background: var(--accent); color: #0d1b2a; border-color: var(--accent); }
 a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
@@ -78,11 +79,12 @@ th, td {
   border-bottom: 1px solid var(--border);
   text-align: left;
 }
-th.col-url, td.col-url { width: 42%; }
-th.col-status, td.col-status { width: 16%; }
-th.col-submitter, td.col-submitter { width: 18%; }
-th.col-date, td.col-date { width: 14%; }
-th.col-votes, td.col-votes { width: 10%; }
+th.col-url, td.col-url { width: 40%; }
+th.col-status, td.col-status { width: 14%; }
+th.col-submitter, td.col-submitter { width: 17%; }
+th.col-date, td.col-date { width: 13%; }
+th.col-votes, td.col-votes { width: 8%; }
+th.col-actions, td.col-actions { width: 8%; text-align: right; }
 tr:nth-child(even) { background: rgba(19,38,58,0.4); }
 th { color: var(--muted); font-size: 0.95rem; font-weight: 700; }
 .pill-badge {
@@ -120,6 +122,16 @@ button {
   font-size: 1rem;
 }
 button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0.24); }
+.btn-danger {
+  background: var(--danger);
+  color: #0d1b2a;
+}
+.btn-icon {
+  padding: 8px 10px;
+  border-radius: 10px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.2);
+  font-weight: 700;
+}
 .stack { display: grid; gap: 12px; }
 .flex { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .status-line { display: flex; justify-content: space-between; align-items: center; }

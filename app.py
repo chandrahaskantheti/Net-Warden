@@ -22,6 +22,7 @@ from db_helpers import (
     DB_PATH,
     dashboard_data,
     get_connection,
+    delete_submission,
     insert_submission,
     search_urls,
     url_details,
@@ -45,12 +46,13 @@ def format_datetime(value):
         return str(value)
 
 
-def render_page(title, body):
-    nav = """
+def render_page(title, body, admin_view=False):
+    nav = f"""
     <header class="topbar">
       <div class="brand">Net-Warden</div>
       <nav>
-        <a href="/">Dashboard</a>
+        <a href="/" {'class="active"' if not admin_view else ''}>Dashboard</a>
+        <a href="/?view=admin" {'class="active"' if admin_view else ''}>Admin View</a>
       </nav>
     </header>
     """
@@ -167,6 +169,35 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 self.send_response(303)
                 self.send_header("Location", f"{target}?{query}#submit")
                 self.end_headers()
+        elif parsed.path == "/delete":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            form = urllib.parse.parse_qs(body)
+            if form.get("view", [""])[0] != "admin":
+                self.send_error(403, "Admin view required")
+                return
+            try:
+                url_id = int(form.get("url_id", [0])[0])
+            except ValueError:
+                self.send_error(400, "Invalid id")
+                return
+            ok, msg = delete_submission(url_id)
+            referer = self.headers.get("Referer", "/")
+            target = "/"
+            try:
+                ref = urllib.parse.urlparse(referer)
+                target = ref.path + (f"?{ref.query}" if ref.query else "")
+            except ValueError:
+                pass
+            if ok:
+                self.send_response(303)
+                self.send_header("Location", target)
+                self.end_headers()
+            else:
+                query = urllib.parse.urlencode({"error": msg})
+                self.send_response(303)
+                self.send_header("Location", f"{target}&{query}" if "?" in target else f"{target}?{query}")
+                self.end_headers()
         else:
             self.send_error(404, "Not Found")
 
@@ -183,14 +214,25 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         qs = urllib.parse.urlencode(query)
         return f"{action_path}?{qs}" if qs else action_path
 
-    def render_url_tools(self, q, result_code, user_id, error, action_path):
+    def render_url_tools(self, q, result_code, user_id, error, action_path, admin_view=False):
         rows, users = search_urls(q, result_code, user_id)
         options = "".join(
             f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])}</option>'
             for user in users
         )
-        table_rows = "".join(
-            f"""
+        table_rows = ""
+        for row in rows:
+            action_cell = ""
+            if admin_view:
+                action_cell = (
+                    f'<td class="col-actions"><form method="POST" action="/delete" '
+                    f'onsubmit="return confirm(\'Delete this URL?\');">'
+                    f'<input type="hidden" name="view" value="admin" />'
+                    f'<input type="hidden" name="url_id" value="{row["url_id"]}" />'
+                    f'<button class="btn-danger btn-icon" type="submit" title="Delete">&#128465;</button>'
+                    f"</form></td>"
+                )
+            table_rows += f"""
             <tr>
               <td><a href="/url/{row['url_id']}">{escape(row['url'])}</a>
                 <div class="muted">{escape(row['url_domain'])}</div>
@@ -199,13 +241,18 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               <td>{escape(row['submitter'])}</td>
               <td>{format_datetime(row['created_at'])}</td>
               <td class="muted">+{row['phishing_votes']} / -{row['legitimate_votes']}</td>
+              {action_cell}
             </tr>
             """
-            for row in rows
-        )
         has_filters = bool(q or result_code or user_id)
-        reset_href = action_path
-        export_href = self.filter_link(action_path, q, result_code, user_id, {"export": "1"})
+        reset_extra = {"view": "admin"} if admin_view else None
+        reset_href = self.filter_link(action_path, "", "", "", reset_extra)
+        extra = {"export": "1"}
+        if admin_view:
+            extra["view"] = "admin"
+        export_href = self.filter_link(action_path, q, result_code, user_id, extra)
+        status_class = "mini-filter col-status" + (" active" if result_code else "")
+        submitter_class = "mini-filter col-submitter" + (" active" if user_id else "")
         return f"""
         <div class="grid">
           <div class="card">
@@ -215,6 +262,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <label for="q">Search domain or URL</label>
                 <input type="text" id="q" name="q" value="{escape(q)}" placeholder="paypal, .tk, bit.ly" />
               </div>
+              { '<input type="hidden" name="view" value="admin" />' if admin_view else '' }
               <button type="submit">Apply</button>
             </form>
           </div>
@@ -259,27 +307,28 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <thead>
               <tr>
                 <th class="col-url">URL</th>
-                <th class="{f'mini-filter col-status{' active' if result_code else ''}'}">
+                <th class="{status_class}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
-                    <a href="{self.filter_link(action_path, q, '', user_id)}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
-                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing</a>
-                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious</a>
-                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
+                    <a href="{self.filter_link(action_path, q, '', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
                   </div>
                 </th>
-                <th class="{f'mini-filter col-submitter{' active' if user_id else ''}'}">
+                <th class="{submitter_class}">
                   <button type="button" class="filter-toggle">Submitter ▾</button>
                   <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
-                    <a href="{self.filter_link(action_path, q, result_code, '')}" {"class=\"active\"" if not user_id else ""}>All submitters</a>
+                    <a href="{self.filter_link(action_path, q, result_code, '', {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not user_id else ""}>All submitters</a>
                     {''.join(
-                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]))}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])}</a>'
+                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])}</a>'
                         for user in users
                     )}
                   </div>
                 </th>
                 <th class="col-date">Submitted</th>
                 <th class="col-votes">Votes</th>
+                { '<th class=\"col-actions\">Actions</th>' if admin_view else '' }
               </tr>
             </thead>
             <tbody>{table_rows or '<tr><td colspan="5" class="muted">No URLs found.</td></tr>'}</tbody>
@@ -291,6 +340,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
         user_id = query.get("user_id", [""])[0]
+        admin_view = query.get("view", [""])[0] == "admin"
         export = query.get("export", [""])[0]
         error = query.get("error", [""])[0]
         if export:
@@ -325,22 +375,23 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <div class="stat-number">{data['total_rules']}</div>
           </div>
         """
-        tools = self.render_url_tools(q, result_code, user_id, error, "/")
+        tools = self.render_url_tools(q, result_code, user_id, error, "/", admin_view=admin_view)
         body = f"""
         <h1 style="margin-bottom:4px;">Security Pulse</h1>
         <p class="muted">Snapshot of submissions, statuses, and votes.</p>
         <div class="belt" style="margin:14px 0 18px;">{stat_cards}</div>
         {tools}
         """
-        self.respond_html(render_page("Net-Warden Dashboard", body))
+        self.respond_html(render_page("Net-Warden Dashboard", body, admin_view=admin_view))
 
     def render_urls(self, query):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
         user_id = query.get("user_id", [""])[0]
         error = query.get("error", [""])[0]
-        body = self.render_url_tools(q, result_code, user_id, error, "/urls")
-        self.respond_html(render_page("URLs", body))
+        admin_view = query.get("view", [""])[0] == "admin"
+        body = self.render_url_tools(q, result_code, user_id, error, "/urls", admin_view=admin_view)
+        self.respond_html(render_page("URLs", body, admin_view=admin_view))
 
     def render_url_detail(self, url_id):
         try:
