@@ -249,8 +249,9 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             </tr>
             """
         has_filters = bool(q or result_code or user_id)
-        reset_extra = {"view": "admin"} if admin_view else None
-        reset_href = self.filter_link(action_path, "", "", "", reset_extra)
+        view_params = {"view": "admin"} if admin_view else None
+        active_attr = 'class="active"'
+        reset_href = self.filter_link(action_path, "", "", "", view_params)
         extra = {"export": "1"}
         if admin_view:
             extra["view"] = "admin"
@@ -306,7 +307,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                       {f'<input type="hidden" name="user_id" value="{escape(user_id)}" />' if user_id else ''}
                       { '<input type="hidden" name="view" value="admin" />' if admin_view else '' }
                       <div class="flex" style="justify-content: flex-end; gap:8px;">
-                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, {'view': 'admin'} if admin_view else None)}">Clear</a>
+                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, view_params)}">Clear</a>
                         <button type="submit" class="reset-link enabled" style="border:none;">Apply</button>
                       </div>
                     </form>
@@ -315,25 +316,25 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <th class="{status_class}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
-                    <a href="{self.filter_link(action_path, q, '', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
-                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
-                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
-                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, '', user_id, view_params)}" {active_attr if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, view_params)}" {active_attr if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, view_params)}" {active_attr if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, view_params)}" {active_attr if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
                   </div>
                 </th>
                 <th class="{submitter_class}">
                   <button type="button" class="filter-toggle">Submitter ▾</button>
                   <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
-                    <a href="{self.filter_link(action_path, q, result_code, '', {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, result_code, '', view_params)}" {active_attr if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
                     {''.join(
-                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
+                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), view_params)}" {active_attr if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
                         for user in users
                     )}
                   </div>
                 </th>
                 <th class="col-date">Submitted</th>
                 <th class="col-votes">Votes</th>
-                { '<th class=\"col-actions\">Actions</th>' if admin_view else '' }
+                { '<th class="col-actions">Actions</th>' if admin_view else '' }
               </tr>
             </thead>
             <tbody>{table_rows or '<tr><td colspan="5" class="muted">No URLs found.</td></tr>'}</tbody>
