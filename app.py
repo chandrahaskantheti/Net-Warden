@@ -213,8 +213,7 @@ def render_page(title, body):
       <div class="brand">Net-Warden</div>
       <nav>
         <a href="/">Dashboard</a>
-        <a href="/urls">URLs</a>
-        <a class="pill" href="/urls#submit">Submit URL</a>
+        <a class="pill" href="/#submit">Submit URL</a>
       </nav>
     </header>
     """
@@ -273,9 +272,9 @@ def render_page(title, body):
       a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
       a:hover { color: #c1f0e4; }
       .shell {
-        max-width: 1040px;
+        max-width: 1200px;
         margin: 26px auto 72px;
-        padding: 0 20px;
+        padding: 0 24px;
       }
       h1, h2, h3 { margin: 6px 0 12px; }
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
@@ -395,9 +394,11 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed.query)
 
         if path == "/":
-            self.render_dashboard()
+            self.render_dashboard(query)
         elif path == "/urls":
-            self.render_urls(query)
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
         elif path.startswith("/url/"):
             url_id = path.split("/")[-1]
             self.render_url_detail(url_id)
@@ -417,76 +418,21 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 self.end_headers()
             else:
                 query = urllib.parse.urlencode({"error": result})
+                referer = self.headers.get("Referer", "")
+                target = "/"
+                try:
+                    ref_path = urllib.parse.urlparse(referer).path
+                    if ref_path and ref_path.startswith("/urls"):
+                        target = "/urls"
+                except ValueError:
+                    pass
                 self.send_response(303)
-                self.send_header("Location", f"/urls?{query}#submit")
+                self.send_header("Location", f"{target}?{query}#submit")
                 self.end_headers()
         else:
             self.send_error(404, "Not Found")
 
-    def render_dashboard(self):
-        data = dashboard_data()
-        count_map = {row["result_code"] or "UNKNOWN": row["count"] for row in data["result_counts"]}
-        stat_cards = f"""
-          <div class="stat">
-            <div class="muted">Total URLs</div>
-            <div class="stat-number">{data['total_urls']}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Phishing</div>
-            <div class="stat-number">{count_map.get('PHISHING', 0)}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Legitimate</div>
-            <div class="stat-number">{count_map.get('LEGITIMATE', 0)}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Suspicious</div>
-            <div class="stat-number">{count_map.get('SUSPICIOUS', 0)}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Users</div>
-            <div class="stat-number">{data['total_users']}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Rules</div>
-            <div class="stat-number">{data['total_rules']}</div>
-          </div>
-        """
-        recent_rows = "".join(
-            f"""
-            <tr>
-              <td><a href="/url/{row['url_id']}">{escape(row['url'])}</a>
-                <div class="muted">{escape(row['url_domain'])}</div>
-              </td>
-              <td>{self.render_status_badge(row['result_code'])}</td>
-              <td>{escape(row['submitter'])}</td>
-              <td>{format_datetime(row['created_at'])}</td>
-              <td class="muted">+{row['phishing_votes']} / -{row['legitimate_votes']}</td>
-            </tr>
-            """
-            for row in data["recent_urls"]
-        )
-        body = f"""
-        <h1 style="margin-bottom:4px;">Security Pulse</h1>
-        <p class="muted">Snapshot of submissions, statuses, and votes.</p>
-        <div class="belt" style="margin:14px 0 18px;">{stat_cards}</div>
-        <div class="card">
-          <div class="section-head">
-            <h2 style="margin:0;">Recent URLs</h2>
-            <a href="/urls" style="text-decoration:none;">View all</a>
-          </div>
-          <table class="table-fade">
-            <thead><tr><th>URL</th><th>Status</th><th>Submitter</th><th>Submitted</th><th>Votes</th></tr></thead>
-            <tbody>{recent_rows or '<tr><td colspan="5" class="muted">No data yet.</td></tr>'}</tbody>
-          </table>
-        </div>
-        """
-        self.respond_html(render_page("Net-Warden Dashboard", body))
-
-    def render_urls(self, query):
-        q = query.get("q", [""])[0]
-        result_code = query.get("result_code", [""])[0]
-        error = query.get("error", [""])[0]
+    def render_url_tools(self, q, result_code, error, action_path):
         rows, users = search_urls(q, result_code)
         options = "".join(
             f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])}</option>'
@@ -506,11 +452,11 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             """
             for row in rows
         )
-        body = f"""
+        return f"""
         <div class="grid">
           <div class="card">
             <h2>Filter URLs</h2>
-            <form method="GET">
+            <form method="GET" action="{action_path}">
               <div>
                 <label for="q">Search domain or URL</label>
                 <input type="text" id="q" name="q" value="{escape(q)}" placeholder="paypal, .tk, bit.ly" />
@@ -566,6 +512,77 @@ class NetWardenHandler(BaseHTTPRequestHandler):
           </table>
         </div>
         """
+
+    def render_dashboard(self, query):
+        q = query.get("q", [""])[0]
+        result_code = query.get("result_code", [""])[0]
+        error = query.get("error", [""])[0]
+        data = dashboard_data()
+        count_map = {row["result_code"] or "UNKNOWN": row["count"] for row in data["result_counts"]}
+        stat_cards = f"""
+          <div class="stat">
+            <div class="muted">Total URLs</div>
+            <div class="stat-number">{data['total_urls']}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Phishing</div>
+            <div class="stat-number">{count_map.get('PHISHING', 0)}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Legitimate</div>
+            <div class="stat-number">{count_map.get('LEGITIMATE', 0)}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Suspicious</div>
+            <div class="stat-number">{count_map.get('SUSPICIOUS', 0)}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Users</div>
+            <div class="stat-number">{data['total_users']}</div>
+          </div>
+          <div class="stat">
+            <div class="muted">Rules</div>
+            <div class="stat-number">{data['total_rules']}</div>
+          </div>
+        """
+        recent_rows = "".join(
+            f"""
+            <tr>
+              <td><a href="/url/{row['url_id']}">{escape(row['url'])}</a>
+                <div class="muted">{escape(row['url_domain'])}</div>
+              </td>
+              <td>{self.render_status_badge(row['result_code'])}</td>
+              <td>{escape(row['submitter'])}</td>
+              <td>{format_datetime(row['created_at'])}</td>
+              <td class="muted">+{row['phishing_votes']} / -{row['legitimate_votes']}</td>
+            </tr>
+            """
+            for row in data["recent_urls"]
+        )
+        tools = self.render_url_tools(q, result_code, error, "/")
+        body = f"""
+        <h1 style="margin-bottom:4px;">Security Pulse</h1>
+        <p class="muted">Snapshot of submissions, statuses, and votes.</p>
+        <div class="belt" style="margin:14px 0 18px;">{stat_cards}</div>
+        {tools}
+        <div class="card">
+          <div class="section-head">
+            <h2 style="margin:0;">Recent URLs</h2>
+            <a href="/urls" style="text-decoration:none;">View all</a>
+          </div>
+          <table class="table-fade">
+            <thead><tr><th>URL</th><th>Status</th><th>Submitter</th><th>Submitted</th><th>Votes</th></tr></thead>
+            <tbody>{recent_rows or '<tr><td colspan="5" class="muted">No data yet.</td></tr>'}</tbody>
+          </table>
+        </div>
+        """
+        self.respond_html(render_page("Net-Warden Dashboard", body))
+
+    def render_urls(self, query):
+        q = query.get("q", [""])[0]
+        result_code = query.get("result_code", [""])[0]
+        error = query.get("error", [""])[0]
+        body = self.render_url_tools(q, result_code, error, "/urls")
         self.respond_html(render_page("URLs", body))
 
     def render_url_detail(self, url_id):
