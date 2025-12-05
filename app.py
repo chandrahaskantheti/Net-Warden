@@ -257,7 +257,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             <thead>
               <tr>
                 <th class="col-url">URL</th>
-                <th class="mini-filter col-status">
+                <th class="{f'mini-filter col-status{' active' if result_code else ''}'}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
                     <a href="{self.filter_link(action_path, q, '', user_id)}" {"class=\"active\"" if not result_code else ""}>All statuses</a>
@@ -266,7 +266,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                     <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate</a>
                   </div>
                 </th>
-                <th class="mini-filter col-submitter">
+                <th class="{f'mini-filter col-submitter{' active' if user_id else ''}'}">
                   <button type="button" class="filter-toggle">Submitter ▾</button>
                   <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
                     <a href="{self.filter_link(action_path, q, result_code, '')}" {"class=\"active\"" if not user_id else ""}>All submitters</a>

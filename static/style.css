@@ -183,6 +183,11 @@ th.mini-filter .filter-toggle {
 }
 th.mini-filter .filter-toggle:hover { border-color: var(--accent); color: var(--accent); }
 th.mini-filter.open .mini-filters { display: flex; }
+th.mini-filter.active .filter-toggle {
+  background: #6ba43a;
+  border-color: #6ba43a;
+  color: #0d1b2a;
+}
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
