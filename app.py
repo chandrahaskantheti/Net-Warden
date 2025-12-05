@@ -354,29 +354,31 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         data = dashboard_data()
         count_map = {row["result_code"] or "UNKNOWN": row["count"] for row in data["result_counts"]}
         stat_cards = f"""
-          <div class="stat">
-            <div class="muted">Total URLs</div>
-            <div class="stat-number">{data['total_urls']}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Phishing</div>
-            <div class="stat-number">{count_map.get('PHISHING', 0)}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Legitimate</div>
-            <div class="stat-number">{count_map.get('LEGITIMATE', 0)}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Suspicious</div>
-            <div class="stat-number">{count_map.get('SUSPICIOUS', 0)}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Users</div>
-            <div class="stat-number">{data['total_users']}</div>
-          </div>
-          <div class="stat">
-            <div class="muted">Rules</div>
-            <div class="stat-number">{data['total_rules']}</div>
+          <div class="belt stat-row">
+            <div class="stat stat-primary">
+              <div class="muted">Total URLs</div>
+              <div class="stat-number">{data['total_urls']}</div>
+            </div>
+            <div class="stat stat-primary">
+              <div class="muted">Phishing</div>
+              <div class="stat-number">{count_map.get('PHISHING', 0)}</div>
+            </div>
+            <div class="stat stat-primary">
+              <div class="muted">Legitimate</div>
+              <div class="stat-number">{count_map.get('LEGITIMATE', 0)}</div>
+            </div>
+            <div class="stat stat-primary">
+              <div class="muted">Suspicious</div>
+              <div class="stat-number">{count_map.get('SUSPICIOUS', 0)}</div>
+            </div>
+            <div class="stat stat-warm">
+              <div class="muted">Users</div>
+              <div class="stat-number">{data['total_users']}</div>
+            </div>
+            <div class="stat stat-warm">
+              <div class="muted">Rules</div>
+              <div class="stat-number">{data['total_rules']}</div>
+            </div>
           </div>
         """
         tools = self.render_url_tools(q, result_code, user_id, error, "/", admin_view=admin_view)

@@ -143,13 +143,16 @@ button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0
 .stat {
   display: grid;
   gap: 6px;
-  background: rgba(19,38,58,0.8);
+  background: rgba(19,38,58,0.85);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
   place-items: center;
   text-align: center;
 }
+.stat-row { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.stat.stat-primary { background: linear-gradient(135deg, rgba(111,177,255,0.16), rgba(19,38,58,0.9)); border-color: rgba(111,177,255,0.5); }
+.stat.stat-warm { background: linear-gradient(135deg, rgba(247,194,102,0.16), rgba(19,38,58,0.9)); border-color: rgba(247,194,102,0.45); }
 .stat-number { font-size: 1.8rem; font-weight: 800; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mini-filters {
