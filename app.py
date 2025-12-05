@@ -215,15 +215,6 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <label for="q">Search domain or URL</label>
                 <input type="text" id="q" name="q" value="{escape(q)}" placeholder="paypal, .tk, bit.ly" />
               </div>
-              <div>
-                <label for="result_code">Status</label>
-                <select id="result_code" name="result_code">
-                  <option value="">Any</option>
-                  <option value="PHISHING" {"selected" if result_code == "PHISHING" else ""}>Phishing</option>
-                  <option value="LEGITIMATE" {"selected" if result_code == "LEGITIMATE" else ""}>Legitimate</option>
-                  <option value="SUSPICIOUS" {"selected" if result_code == "SUSPICIOUS" else ""}>Suspicious</option>
-                </select>
-              </div>
               <button type="submit">Apply</button>
             </form>
           </div>
