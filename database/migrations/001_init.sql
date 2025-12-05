@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE, -- we only allow one account per email
+    password_hash TEXT NOT NULL, -- stores salted PBKDF2 hash for login
     role TEXT NOT NULL CHECK (role IN ('admin', 'analyst', 'user')),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -94,4 +95,3 @@ CREATE TABLE IF NOT EXISTS url_score_comparisons (
 );
 
 CREATE INDEX IF NOT EXISTS idx_scores_url ON url_score_comparisons (url_id);
-

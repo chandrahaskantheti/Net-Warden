@@ -3,12 +3,37 @@
 PRAGMA foreign_keys = ON;
 
 
--- 1. INSERT USERS (5 statements)
-INSERT OR IGNORE INTO users (name, email, role) VALUES ('Admin User', 'admin@netwarden.local', 'admin');
-INSERT OR IGNORE INTO users (name, email, role) VALUES ('Security Analyst', 'analyst@netwarden.local', 'analyst');
-INSERT OR IGNORE INTO users (name, email, role) VALUES ('John Doe', 'john.doe@example.com', 'user');
-INSERT OR IGNORE INTO users (name, email, role) VALUES ('Jane Smith', 'jane.smith@example.com', 'user');
-INSERT OR IGNORE INTO users (name, email, role) VALUES ('Bob Johnson', 'bob.johnson@example.com', 'user');
+-- Default passwords: adminpass, analystpass, johnpass, janepass, bobpass
+INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (
+    'Admin User',
+    'admin@netwarden.local',
+    'admin',
+    'pbkdf2_sha256$390000$9e0a3fdb6854519d01fdea09fe569846$438b99ac85b49e9ea12fc46dc15f6980b5db3866cf3501e0feadfa80e0bd0afd'
+);
+INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (
+    'Security Analyst',
+    'analyst@netwarden.local',
+    'analyst',
+    'pbkdf2_sha256$390000$c8cba634c4ddd23123f3fe901b556872$1e02e8a28cea85bcf6a37720e2c22275dbb11fefd8bcfd4041171e846dfec570'
+);
+INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (
+    'John Doe',
+    'john.doe@example.com',
+    'user',
+    'pbkdf2_sha256$390000$b4c1ad6a91b90c50d08fa3885c82258c$1a4a3d487671f1007afffd250d5c0e8df32df6ce0c8e2531e82de3b2397dd0e3'
+);
+INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (
+    'Jane Smith',
+    'jane.smith@example.com',
+    'user',
+    'pbkdf2_sha256$390000$8517b2e78e6a643ffcf42b06d18be6d6$d9c373eb70b2377385dc8c598b91d1a98ebd9dcdf1031c1ca02e88ad276d2b7b'
+);
+INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (
+    'Bob Johnson',
+    'bob.johnson@example.com',
+    'user',
+    'pbkdf2_sha256$390000$1df1b9a851a5635e01df4cd49b3d1439$fb9779eb9415785feed9d7837c8943393eeed71e2ef84979ba3cfc566aa89a9d'
+);
 
 
 -- 2. INSERT RULES (8 statements)
@@ -75,4 +100,3 @@ INSERT OR IGNORE INTO url_score_comparisons (url_id, external_source, avg_score,
 
 -- Summary: 5 users + 8 rules + 10 URLs + 11 rule matches + 5 statuses + 6 votes + 5 score comparisons
 -- Total: 50 INSERT statements for table population
-

@@ -1,10 +1,15 @@
 from datetime import datetime
+import hashlib
+import hmac
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Optional, Tuple
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "database" / "net_warden.db"
+PASSWORD_SCHEME = "pbkdf2_sha256"
+PBKDF2_ITERATIONS = 390000
 
 
 def get_connection():
@@ -12,6 +17,59 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def hash_password(password: str) -> str:
+    """Return a salted PBKDF2 hash for storage."""
+
+    salt = secrets.token_bytes(16)
+    derived = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS
+    )
+    return f"{PASSWORD_SCHEME}${PBKDF2_ITERATIONS}${salt.hex()}${derived.hex()}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    if not encoded:
+        return False
+    try:
+        scheme, iter_str, salt_hex, hash_hex = encoded.split("$")
+    except ValueError:
+        return False
+    if scheme != PASSWORD_SCHEME:
+        return False
+    try:
+        iterations = int(iter_str)
+        salt = bytes.fromhex(salt_hex)
+    except (ValueError, TypeError):
+        return False
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(derived.hex(), hash_hex)
+
+
+def get_user_by_email(email: str):
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT user_id, name, email, role, password_hash FROM users WHERE LOWER(email) = LOWER(?)",
+            (email,),
+        ).fetchone()
+
+
+def verify_user_credentials(email: str, password: str):
+    row = get_user_by_email(email)
+    if not row:
+        return None
+    if not verify_password(password, row["password_hash"]):
+        return None
+    return row
+
+
+def set_user_password(user_id: int, password: str):
+    encoded = hash_password(password)
+    with get_connection() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE user_id = ?", (encoded, user_id))
+        conn.commit()
+    return encoded
 
 
 def parse_url_parts(raw_url: str) -> Tuple[str, Optional[str]]:

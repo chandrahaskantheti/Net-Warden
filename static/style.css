@@ -151,6 +151,36 @@ button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0
 .status-line { display: flex; justify-content: space-between; align-items: center; }
 .error { color: var(--danger); font-weight: 700; }
 .table-fade tbody tr { animation: fadeSlide 0.3s ease; }
+.session-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+.session-chip strong { color: var(--text); font-size: 1rem; }
+.session-chip .role-pill {
+  background: rgba(111,177,255,0.18);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+  border: 1px solid rgba(111,177,255,0.35);
+}
+.session-chip a.pill {
+  background: var(--accent);
+  color: #0d1b2a;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  border: 1px solid var(--accent);
+}
+.session-chip a.pill:hover {
+  color: #0d1b2a;
+  border-color: #c1f0e4;
+  background: #c1f0e4;
+}
 .belt { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .stat {
   display: grid;
@@ -257,6 +287,12 @@ th.mini-filter.active .filter-toggle {
   transform: translateY(-1px);
   box-shadow: 0 12px 26px rgba(0,0,0,0.24);
 }
+.auth-container {
+  max-width: 480px;
+  margin: 0 auto;
+  padding-top: 32px;
+}
+.auth-card form { margin-top: 12px; }
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
