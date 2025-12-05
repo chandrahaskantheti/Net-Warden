@@ -213,7 +213,6 @@ def render_page(title, body):
       <div class="brand">Net-Warden</div>
       <nav>
         <a href="/">Dashboard</a>
-        <a class="pill" href="/#submit">Submit URL</a>
       </nav>
     </header>
     """
@@ -348,6 +347,8 @@ def render_page(title, body):
         border: 1px solid var(--border);
         border-radius: 12px;
         padding: 12px;
+        place-items: center;
+        text-align: center;
       }
       .stat-number { font-size: 1.8rem; font-weight: 800; }
       .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
