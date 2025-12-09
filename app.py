@@ -29,6 +29,7 @@ from db_helpers import (
     delete_submission,
     get_admin_actions,
     get_contributor_stats,
+    get_feed_summary,
     get_connection,
     get_rule_effectiveness,
     get_rule_usage,
@@ -543,6 +544,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         risk_rankings = get_risk_rankings()
         rule_effectiveness = get_rule_effectiveness()
         admin_actions = get_admin_actions()
+        feed_summary = get_feed_summary()
 
         def fmt_pct(value):
             return f"{(value if value is not None else 0):.2f}%"
@@ -630,6 +632,21 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               <tbody>{rule_rows}</tbody>
             </table>
           </div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <h2>URLHaus Feed</h2>
+          <p class="muted">URLs imported from the phishing feed dataset.</p>
+          <div class="flex" style="gap:18px;">
+            <div>
+              <div class="muted">Total feed URLs</div>
+              <div class="stat-number" style="font-size:1.6rem;">{feed_summary['count']}</div>
+            </div>
+            <div>
+              <div class="muted">Last import</div>
+              <div>{format_datetime(feed_summary['last_import']) or '—'}</div>
+            </div>
+          </div>
+          <p class="muted" style="margin-top:12px;">Use the maintenance action below to pull fresh entries from <code>urlhaus_cleaned1.csv</code>.</p>
         </div>
         <div class="grid" style="margin-top:16px;">
           <div class="card">
