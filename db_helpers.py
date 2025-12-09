@@ -72,6 +72,28 @@ def set_user_password(user_id: int, password: str):
     return encoded
 
 
+def create_user(name: str, email: str, password: str):
+    encoded = hash_password(password)
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO users (name, email, password_hash, role)
+                VALUES (?, ?, ?, 'user')
+                """,
+                (name, email, encoded),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("Email is already registered.") from exc
+        user_id = cursor.lastrowid
+        row = conn.execute(
+            "SELECT user_id, name, email, role FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return row
+
+
 def parse_url_parts(raw_url: str) -> Tuple[str, Optional[str]]:
     import urllib.parse
 
