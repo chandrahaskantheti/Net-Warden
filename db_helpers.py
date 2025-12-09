@@ -114,7 +114,12 @@ def dashboard_data():
     }
 
 
-def search_urls(query_text: str = "", result_code: str = "", user_id: Optional[str] = None):
+def search_urls(
+    query_text: str = "",
+    result_code: str = "",
+    user_id: Optional[str] = None,
+    viewer_user_id: Optional[int] = None,
+):
     query_text = f"%{query_text.lower()}%" if query_text else "%"
     where_clause = """
         WHERE (LOWER(u.url) LIKE ? OR LOWER(u.url_domain) LIKE ?)
@@ -127,13 +132,27 @@ def search_urls(query_text: str = "", result_code: str = "", user_id: Optional[s
         where_clause += " AND u.user_id = ?"
         params.append(user_id)
 
+    viewer_select = "NULL AS current_user_vote"
+    viewer_params: list = []
+    if viewer_user_id is not None:
+        viewer_select = """
+            (
+                SELECT vote_value
+                FROM votes vv
+                WHERE vv.url_id = u.url_id AND vv.user_id = ?
+                LIMIT 1
+            ) AS current_user_vote
+        """
+        viewer_params.append(viewer_user_id)
+
     with get_connection() as conn:
         rows = conn.execute(
             f"""
             SELECT u.url_id, u.url, u.url_domain, u.tld, u.result_code, u.created_at,
                    usr.name AS submitter,
                    COALESCE(SUM(CASE WHEN v.vote_value = 1 THEN 1 ELSE 0 END), 0) AS phishing_votes,
-                   COALESCE(SUM(CASE WHEN v.vote_value = -1 THEN 1 ELSE 0 END), 0) AS legitimate_votes
+                   COALESCE(SUM(CASE WHEN v.vote_value = -1 THEN 1 ELSE 0 END), 0) AS legitimate_votes,
+                   {viewer_select}
             FROM url_submissions u
             JOIN users usr ON u.user_id = usr.user_id
             LEFT JOIN votes v ON u.url_id = v.url_id
@@ -143,7 +162,7 @@ def search_urls(query_text: str = "", result_code: str = "", user_id: Optional[s
             LIMIT 100
             """
             ,
-            params,
+            params + viewer_params,
         ).fetchall()
         users = conn.execute(
             "SELECT user_id, name, email, role FROM users ORDER BY role, name"
@@ -304,3 +323,411 @@ def delete_submission(url_id: int):
         except sqlite3.Error as exc:
             return False, f"Could not delete URL: {exc}"
     return True, None
+
+
+def get_contributor_stats(limit: int = 10):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT users.user_id,
+                   users.name,
+                   users.email,
+                   users.role,
+                   COUNT(url_submissions.url_id) AS total_submissions,
+                   SUM(CASE WHEN url_submissions.result_code = 'PHISHING' THEN 1 ELSE 0 END) AS phishing_count,
+                   SUM(CASE WHEN url_submissions.result_code = 'LEGITIMATE' THEN 1 ELSE 0 END) AS legitimate_count,
+                   SUM(CASE WHEN url_submissions.result_code = 'SUSPICIOUS' THEN 1 ELSE 0 END) AS suspicious_count
+            FROM users
+            LEFT JOIN url_submissions ON users.user_id = url_submissions.user_id
+            WHERE users.role = 'user'
+            GROUP BY users.user_id, users.name, users.email, users.role
+            ORDER BY total_submissions DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def get_rule_usage():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT rules.rule_id,
+                   rules.rule_name,
+                   rules.rule_type,
+                   rules.risk_level,
+                   COUNT(url_rule_matches.url_id) AS urls_matched
+            FROM rules
+            LEFT JOIN url_rule_matches ON rules.rule_id = url_rule_matches.rule_id
+            GROUP BY rules.rule_id, rules.rule_name, rules.rule_type, rules.risk_level
+            ORDER BY urls_matched DESC, rules.rule_name
+            """
+        ).fetchall()
+
+
+def get_vote_conflicts(limit: int = 10):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT u.url_id,
+                   u.url,
+                   u.result_code,
+                   s.label AS review_status,
+                   s.description AS review_description,
+                   COUNT(CASE WHEN v.vote_value = 1 THEN 1 END) AS phishing_votes,
+                   COUNT(CASE WHEN v.vote_value = -1 THEN 1 END) AS legitimate_votes,
+                   COUNT(v.vote_id) AS total_votes
+            FROM url_submissions u
+            INNER JOIN statuses s ON u.url_id = s.url_id
+            LEFT JOIN votes v ON u.url_id = v.url_id
+            WHERE EXISTS (
+                SELECT 1
+                FROM votes v2
+                WHERE v2.url_id = u.url_id
+                  AND v2.vote_value != (
+                      SELECT CASE
+                          WHEN u.result_code = 'PHISHING' THEN 1
+                          WHEN u.result_code = 'LEGITIMATE' THEN -1
+                          ELSE 0
+                      END
+                  )
+            )
+            GROUP BY u.url_id, u.url, u.result_code, s.label, s.description
+            HAVING COUNT(v.vote_id) > 0
+            ORDER BY total_votes DESC, u.url_id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def get_risk_rankings(limit: int = 20):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            WITH url_risk_scores AS (
+                SELECT u.url_id,
+                       u.url,
+                       u.url_domain,
+                       u.result_code,
+                       COALESCE(usc.avg_score, 0.5) AS risk_score,
+                       usc.risk_level,
+                       COUNT(v.vote_id) AS vote_count,
+                       AVG(v.vote_value) AS avg_vote_value
+                FROM url_submissions u
+                LEFT JOIN url_score_comparisons usc ON u.url_id = usc.url_id
+                LEFT JOIN votes v ON u.url_id = v.url_id
+                GROUP BY u.url_id, u.url, u.url_domain, u.result_code, usc.avg_score, usc.risk_level
+            )
+            SELECT url_id,
+                   url,
+                   url_domain,
+                   result_code,
+                   risk_score,
+                   risk_level,
+                   vote_count,
+                   avg_vote_value,
+                   RANK() OVER (ORDER BY risk_score DESC) AS risk_rank,
+                   CASE
+                       WHEN avg_vote_value > 0.5 THEN 'Phishing Agreement'
+                       WHEN avg_vote_value < -0.5 THEN 'Legitimate Agreement'
+                       ELSE 'Uncertain'
+                   END AS agreement_status
+            FROM url_risk_scores
+            ORDER BY risk_score DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def get_rule_effectiveness(limit: int = 25):
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT r.rule_id,
+                   r.rule_name,
+                   r.rule_type,
+                   r.risk_level,
+                   COUNT(DISTINCT urm.url_id) AS urls_matched,
+                   COUNT(
+                       DISTINCT CASE WHEN u.result_code = 'PHISHING' THEN urm.url_id END
+                   ) AS phishing_matches,
+                   COUNT(
+                       DISTINCT CASE WHEN u.result_code = 'LEGITIMATE' THEN urm.url_id END
+                   ) AS legitimate_matches,
+                   ROUND(
+                       CAST(
+                           COUNT(
+                               DISTINCT CASE WHEN u.result_code = 'PHISHING' THEN urm.url_id END
+                           ) AS REAL
+                       )
+                       / NULLIF(COUNT(DISTINCT urm.url_id), 0) * 100,
+                       2
+                   ) AS phishing_accuracy_percent
+            FROM rules r
+            LEFT JOIN url_rule_matches urm ON r.rule_id = urm.rule_id
+            LEFT JOIN url_submissions u ON urm.url_id = u.url_id
+            GROUP BY r.rule_id, r.rule_name, r.rule_type, r.risk_level
+            HAVING COUNT(DISTINCT urm.url_id) > 0
+            ORDER BY urls_matched DESC, phishing_accuracy_percent DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def get_user_vote(url_id: int, user_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT vote_value FROM votes WHERE url_id = ? AND user_id = ?",
+            (url_id, user_id),
+        ).fetchone()
+    return row["vote_value"] if row else None
+
+
+def cast_vote(url_id: int, user_id: int, vote_value: int):
+    if vote_value not in (-1, 1):
+        return False, "Invalid vote."
+    with get_connection() as conn:
+        current = conn.execute(
+            "SELECT vote_value FROM votes WHERE url_id = ? AND user_id = ?",
+            (url_id, user_id),
+        ).fetchone()
+        try:
+            if current and current["vote_value"] == vote_value:
+                conn.execute("DELETE FROM votes WHERE url_id = ? AND user_id = ?", (url_id, user_id))
+                conn.commit()
+                return True, "Vote removed."
+            conn.execute(
+                """
+                INSERT INTO votes (user_id, url_id, vote_value)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, url_id) DO UPDATE
+                SET vote_value = excluded.vote_value,
+                    created_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, url_id, vote_value),
+            )
+            conn.commit()
+            return True, "Vote recorded."
+        except sqlite3.Error as exc:
+            return False, f"Could not record vote: {exc}"
+
+
+def _update_results_from_votes():
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE url_submissions
+            SET result_code = (
+                    SELECT CASE
+                        WHEN AVG(v.vote_value) > 0.3 THEN 'PHISHING'
+                        WHEN AVG(v.vote_value) < -0.3 THEN 'LEGITIMATE'
+                        ELSE 'SUSPICIOUS'
+                    END
+                    FROM votes v
+                    WHERE v.url_id = url_submissions.url_id
+                    GROUP BY v.url_id
+                    HAVING COUNT(v.vote_id) >= 3
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE url_id IN (
+                SELECT url_id
+                FROM votes
+                GROUP BY url_id
+                HAVING COUNT(vote_id) >= 3
+                   AND ABS(AVG(vote_value)) > 0.3
+            )
+            """
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
+def _recalculate_risk_scores():
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            WITH url_metrics AS (
+                SELECT u.url_id,
+                       COUNT(DISTINCT urm.rule_id) AS rule_count,
+                       AVG(
+                           CASE WHEN r.risk_level = 'critical' THEN 1.0
+                                WHEN r.risk_level = 'high' THEN 0.75
+                                WHEN r.risk_level = 'medium' THEN 0.5
+                                WHEN r.risk_level = 'low' THEN 0.25
+                                ELSE 0.0
+                           END
+                       ) AS avg_rule_risk,
+                       COUNT(DISTINCT v.vote_id) AS vote_count,
+                       AVG(v.vote_value) AS avg_vote
+                FROM url_submissions u
+                LEFT JOIN url_rule_matches urm ON u.url_id = urm.url_id
+                LEFT JOIN rules r ON urm.rule_id = r.rule_id
+                LEFT JOIN votes v ON u.url_id = v.url_id
+                GROUP BY u.url_id
+            )
+            UPDATE url_score_comparisons
+            SET avg_score = (
+                    SELECT (um.avg_rule_risk * 0.6 + (um.avg_vote + 1) / 2 * 0.4)
+                    FROM url_metrics um
+                    WHERE um.url_id = url_score_comparisons.url_id
+                ),
+                risk_level = (
+                    SELECT CASE
+                        WHEN (um.avg_rule_risk * 0.6 + (um.avg_vote + 1) / 2 * 0.4) >= 0.75 THEN 'critical'
+                        WHEN (um.avg_rule_risk * 0.6 + (um.avg_vote + 1) / 2 * 0.4) >= 0.5 THEN 'high'
+                        WHEN (um.avg_rule_risk * 0.6 + (um.avg_vote + 1) / 2 * 0.4) >= 0.25 THEN 'medium'
+                        ELSE 'low'
+                    END
+                    FROM url_metrics um
+                    WHERE um.url_id = url_score_comparisons.url_id
+                )
+            WHERE url_id IN (SELECT url_id FROM url_metrics)
+            """
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
+def _cleanup_inactive_urls():
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM url_submissions
+            WHERE url_id IN (
+                SELECT u.url_id
+                FROM url_submissions u
+                WHERE u.created_at < datetime('now', '-90 days')
+                  AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.url_id = u.url_id)
+                  AND NOT EXISTS (SELECT 1 FROM statuses s WHERE s.url_id = u.url_id)
+                  AND NOT EXISTS (SELECT 1 FROM url_rule_matches urm WHERE urm.url_id = u.url_id)
+            )
+            """
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
+def _cleanup_rule_matches():
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM url_rule_matches
+            WHERE match_id IN (
+                SELECT urm.match_id
+                FROM url_rule_matches urm
+                LEFT JOIN url_submissions u ON urm.url_id = u.url_id
+                LEFT JOIN rules r ON urm.rule_id = r.rule_id
+                WHERE u.url_id IS NULL
+                   OR r.rule_id IS NULL
+                   OR (u.result_code = 'LEGITIMATE' AND r.risk_level IN ('high', 'critical'))
+            )
+            """
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
+def _promote_active_users():
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE users
+            SET role = CASE
+                WHEN (
+                    SELECT COUNT(DISTINCT u.url_id)
+                    FROM url_submissions u
+                    WHERE u.user_id = users.user_id
+                      AND u.result_code = 'PHISHING'
+                ) >= 5
+                AND users.role = 'user'
+                THEN 'analyst'
+                ELSE users.role
+            END
+            WHERE user_id IN (
+                SELECT user_id
+                FROM url_submissions
+                GROUP BY user_id
+                HAVING COUNT(DISTINCT url_id) >= 10
+            )
+            """
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
+def _auto_classify_pending():
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE url_submissions
+            SET result_code = COALESCE((
+                    SELECT CASE
+                        WHEN COUNT(urm.rule_id) >= 3 THEN 'PHISHING'
+                        WHEN COUNT(urm.rule_id) >= 1 THEN 'SUSPICIOUS'
+                        ELSE 'LEGITIMATE'
+                    END
+                    FROM url_rule_matches urm
+                    WHERE urm.url_id = url_submissions.url_id
+                ), 'LEGITIMATE'),
+            updated_at = CURRENT_TIMESTAMP
+            WHERE result_code IS NULL
+        """
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
+ADMIN_ACTIONS = {
+    "reclassify_votes": {
+        "label": "Apply vote-driven classification",
+        "description": "Update URL result codes when the community vote average is decisive (Statement 12).",
+        "runner": _update_results_from_votes,
+    },
+    "recompute_scores": {
+        "label": "Recalculate blended risk scores",
+        "description": "Refresh url_score_comparisons using the rule/vote weighting (Statement 16).",
+        "runner": _recalculate_risk_scores,
+    },
+    "cleanup_urls": {
+        "label": "Remove inactive submissions",
+        "description": "Delete URLs older than 90 days with no votes, statuses, or rule matches (Statement 14).",
+        "runner": _cleanup_inactive_urls,
+    },
+    "cleanup_rule_matches": {
+        "label": "Clean orphaned rule matches",
+        "description": "Drop rule matches referencing missing URLs/rules or benign results (Statement 18).",
+        "runner": _cleanup_rule_matches,
+    },
+    "promote_users": {
+        "label": "Promote active reporters",
+        "description": "Elevate prolific phishing reporters to analyst role (Statement 19).",
+        "runner": _promote_active_users,
+    },
+    "auto_classify_pending": {
+        "label": "Auto-classify pending URLs",
+        "description": "Set statuses for submissions lacking result codes based on rule matches (Statement 20).",
+        "runner": _auto_classify_pending,
+    },
+}
+
+
+def get_admin_actions():
+    return [
+        {"id": action_id, "label": meta["label"], "description": meta["description"]}
+        for action_id, meta in ADMIN_ACTIONS.items()
+    ]
+
+
+def run_admin_action(action_id: str):
+    action = ADMIN_ACTIONS.get(action_id)
+    if not action:
+        return False, "Unknown maintenance task."
+    runner = action["runner"]
+    try:
+        affected = runner()
+    except sqlite3.Error as exc:
+        return False, f"Could not execute action: {exc}"
+    return True, f"{action['label']} complete. Rows affected: {affected}."
