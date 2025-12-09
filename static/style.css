@@ -87,6 +87,7 @@ th.col-submitter, td.col-submitter { width: 17%; }
 th.col-date, td.col-date { width: 13%; }
 th.col-votes, td.col-votes { width: 8%; }
 th.col-actions, td.col-actions { width: 8%; text-align: right; }
+th.col-user-vote, td.col-user-vote { width: 10%; text-align: center; }
 tr:nth-child(even) { background: rgba(19,38,58,0.4); }
 th { color: var(--muted); font-size: 0.95rem; font-weight: 700; }
 .pill-badge {
@@ -150,6 +151,15 @@ button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0
 .flex { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .status-line { display: flex; justify-content: space-between; align-items: center; }
 .error { color: var(--danger); font-weight: 700; }
+.alert {
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.alert.success { background: rgba(90,200,161,0.18); border-color: rgba(90,200,161,0.45); color: var(--success); }
+.alert.error { background: rgba(245,101,101,0.18); border-color: rgba(245,101,101,0.45); color: var(--danger); }
 .table-fade tbody tr { animation: fadeSlide 0.3s ease; }
 .session-chip {
   display: flex;
@@ -303,6 +313,34 @@ th.mini-filter.active .filter-toggle {
   padding-top: 32px;
 }
 .auth-card form { margin-top: 12px; }
+.vote-form {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+.vote-form.compact { gap: 6px; }
+.vote-btn {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(111,177,255,0.15);
+  color: var(--text);
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: none;
+}
+.vote-btn:hover { transform: none; box-shadow: none; }
+.vote-form.compact .vote-btn { padding: 4px 10px; font-size: 0.82rem; }
+.vote-btn.vote-phish { background: rgba(245,101,101,0.12); color: var(--danger); }
+.vote-btn.vote-legit { background: rgba(90,200,161,0.12); color: var(--success); }
+.vote-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.action-card { gap: 12px; }
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
