@@ -7,6 +7,19 @@ and provides **administrators** with tools to manage data integrity and reports.
 
 ---
 
+## Authentication
+
+- Visit `http://127.0.0.1:8000/login` to authenticate. Sessions are stored server-side and expire after 8 hours of inactivity.
+- Only administrator accounts can open the admin dashboard or perform destructive actions; regular users stay in the standard view.
+- Seed accounts and their default passwords:
+  - Admin — `admin@netwarden.local` / `adminpass`
+  - Analyst — `analyst@netwarden.local` / `analystpass`
+  - John Doe — `john.doe@example.com` / `johnpass`
+  - Jane Smith — `jane.smith@example.com` / `janepass`
+  - Bob Johnson — `bob.johnson@example.com` / `bobpass`
+
+---
+
 ## 1. Submit URL
 - Users can submit website URLs to be analyzed.  
 - The system validates each submission and stores it in the database for further classification.

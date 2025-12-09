@@ -11,11 +11,14 @@ No external dependencies required.
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import html
+import http.cookies
 import io
 import os
 from pathlib import Path
+import secrets
 import csv
 import sys
+import time
 import urllib.parse
 
 from db_helpers import (
@@ -28,9 +31,13 @@ from db_helpers import (
     status_counts,
     user_counts,
     url_details,
+    verify_user_credentials,
 )
 
 BASE_DIR = Path(__file__).parent
+SESSION_COOKIE_NAME = "netwarden_session"
+SESSION_DURATION = 60 * 60 * 8  # 8 hours
+SESSIONS = {}
 
 
 def escape(value):
@@ -48,14 +55,26 @@ def format_datetime(value):
         return str(value)
 
 
-def render_page(title, body, admin_view=False):
+def render_page(title, body, admin_view=False, user=None):
+    def nav_link(href, label, active=False):
+        cls = ' class="active"' if active else ""
+        return f'<a href="{href}"{cls}>{label}</a>'
+
+    nav_links = [nav_link("/", "User View", not admin_view)]
+    if user and user.get("role") == "admin":
+        nav_links.append(nav_link("/?view=admin", "Admin View", admin_view))
+    session_block = (
+        f"<div class='session-chip'><div class='muted'>Signed in as</div><strong>{escape(user['name'])}</strong><span class='role-pill'>{escape(user['role'].title())}</span><a class='pill' href='/logout'>Logout</a></div>"
+        if user
+        else "<div class='session-chip'><a class='pill' href='/login'>Login</a></div>"
+    )
     nav = f"""
-    <header class="topbar">
-      <div class="brand"><a class="brand-link" href="/">Net-Warden</a></div>
+    <header class=\"topbar\">
+      <div class=\"brand\"><a class=\"brand-link\" href=\"/\">Net-Warden</a></div>
       <nav>
-        <a href="/" {'class="active"' if not admin_view else ''}>User View</a>
-        <a href="/?view=admin" {'class="active"' if admin_view else ''}>Admin View</a>
+        {' '.join(nav_links)}
       </nav>
+      {session_block}
     </header>
     """
     script = """
@@ -111,6 +130,7 @@ def render_page(title, body, admin_view=False):
 
 class NetWardenHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        self.current_user = self.get_current_user()
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
@@ -120,6 +140,10 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             return
         if path == "/":
             self.render_dashboard(query)
+        elif path == "/login":
+            self.render_login(query)
+        elif path == "/logout":
+            self.handle_logout()
         elif path == "/urls":
             self.send_response(302)
             self.send_header("Location", "/")
@@ -148,12 +172,15 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
+        self.current_user = self.get_current_user()
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/submit":
+            if not self.require_login(next_url=self.headers.get("Referer", "/")):
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode()
             form = urllib.parse.parse_qs(body)
-            ok, result = insert_submission(form)
+            ok, result = insert_submission(form, self.current_user["user_id"])
             if ok:
                 self.send_response(303)
                 self.send_header("Location", f"/url/{result}")
@@ -175,8 +202,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode()
             form = urllib.parse.parse_qs(body)
-            if form.get("view", [""])[0] != "admin":
-                self.send_error(403, "Admin view required")
+            if not self.require_admin(next_url=self.headers.get("Referer", "/")):
                 return
             try:
                 url_id = int(form.get("url_id", [0])[0])
@@ -200,6 +226,11 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 self.send_response(303)
                 self.send_header("Location", f"{target}&{query}" if "?" in target else f"{target}?{query}")
                 self.end_headers()
+        elif parsed.path == "/login":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            form = urllib.parse.parse_qs(body)
+            self.process_login(form)
         else:
             self.send_error(404, "Not Found")
 
@@ -220,10 +251,6 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         rows, users = search_urls(q, result_code, user_id)
         status_totals = status_counts(q, user_id)
         user_totals = user_counts(q, result_code)
-        options = "".join(
-            f'<option value="{escape(user["user_id"])}">{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</option>'
-            for user in users
-        )
         table_rows = ""
         for row in rows:
             action_cell = ""
@@ -248,9 +275,52 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               {action_cell}
             </tr>
             """
+        view_params = {"view": "admin"} if admin_view else None
+        current_link = self.filter_link(action_path, q, result_code, user_id, view_params)
+        login_href = "/login"
+        safe_next = self.clean_next_target(current_link)
+        if safe_next and safe_next != "/":
+            login_href = f"/login?next={urllib.parse.quote(safe_next, safe='/?:=&%')}"
+        if self.current_user:
+            submitter_name = escape(self.current_user["name"])
+            submitter_role = escape(self.current_user["role"])
+            submit_block = f"""
+            <div class="card" id="submit">
+              <h2>Submit URL</h2>
+              <form method="POST" action="/submit" class="form-grid">
+                <input type="hidden" name="user_id" value="{escape(self.current_user['user_id'])}" />
+                <div>
+                  <label for="url">URL</label>
+                  <input type="text" id="url" name="url" required placeholder="https://example.com/login" />
+                </div>
+                <div>
+                  <label>Submitter</label>
+                  <div class="submitter-pill">{submitter_name} <span class="muted">({submitter_role})</span></div>
+                </div>
+                <div>
+                  <label for="result_code">Classification</label>
+                  <select id="result_code" name="result_code">
+                    <option value="">Unknown</option>
+                    <option value="PHISHING">Phishing</option>
+                    <option value="SUSPICIOUS">Suspicious</option>
+                    <option value="LEGITIMATE">Legitimate</option>
+                  </select>
+                </div>
+                <button type="submit" class="action-button">Submit</button>
+              </form>
+              {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
+            </div>
+            """
+        else:
+            submit_block = f"""
+            <div class="card" id="submit">
+              <h2>Submit URL</h2>
+              <p class="muted">Please <a href="{login_href}">log in</a> to submit URLs for review.</p>
+            </div>
+            """
         has_filters = bool(q or result_code or user_id)
-        reset_extra = {"view": "admin"} if admin_view else None
-        reset_href = self.filter_link(action_path, "", "", "", reset_extra)
+        active_attr = 'class="active"'
+        reset_href = self.filter_link(action_path, "", "", "", view_params)
         extra = {"export": "1"}
         if admin_view:
             extra["view"] = "admin"
@@ -258,33 +328,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         status_class = "mini-filter col-status" + (" active" if result_code else "")
         submitter_class = "mini-filter col-submitter" + (" active" if user_id else "")
         return f"""
-        <div class="card" id="submit">
-          <h2>Submit URL</h2>
-          <form method="POST" action="/submit" class="form-grid">
-            <div>
-              <label for="url">URL</label>
-              <input type="text" id="url" name="url" required placeholder="https://example.com/login" />
-            </div>
-            <div>
-              <label for="user_id">Submitter</label>
-              <select id="user_id" name="user_id" required>
-                <option value="">Pick a user</option>
-                {options}
-              </select>
-            </div>
-            <div>
-              <label for="result_code">Classification</label>
-              <select id="result_code" name="result_code">
-                <option value="">Unknown</option>
-                <option value="PHISHING">Phishing</option>
-                <option value="SUSPICIOUS">Suspicious</option>
-                <option value="LEGITIMATE">Legitimate</option>
-              </select>
-            </div>
-            <button type="submit" class="action-button">Submit</button>
-          </form>
-          {f'<p class="error" style="margin-top:10px;">{escape(error)}</p>' if error else ''}
-        </div>
+        {submit_block}
         <div class="card" style="margin-top:18px;">
           <div class="status-line">
             <h2>Results</h2>
@@ -306,7 +350,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                       {f'<input type="hidden" name="user_id" value="{escape(user_id)}" />' if user_id else ''}
                       { '<input type="hidden" name="view" value="admin" />' if admin_view else '' }
                       <div class="flex" style="justify-content: flex-end; gap:8px;">
-                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, {'view': 'admin'} if admin_view else None)}">Clear</a>
+                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, view_params)}">Clear</a>
                         <button type="submit" class="reset-link enabled" style="border:none;">Apply</button>
                       </div>
                     </form>
@@ -315,25 +359,25 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <th class="{status_class}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
-                    <a href="{self.filter_link(action_path, q, '', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
-                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
-                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
-                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, '', user_id, view_params)}" {active_attr if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, view_params)}" {active_attr if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, view_params)}" {active_attr if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, view_params)}" {active_attr if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
                   </div>
                 </th>
                 <th class="{submitter_class}">
                   <button type="button" class="filter-toggle">Submitter ▾</button>
                   <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
-                    <a href="{self.filter_link(action_path, q, result_code, '', {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, result_code, '', view_params)}" {active_attr if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
                     {''.join(
-                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), {'view': 'admin'} if admin_view else None)}" {"class=\"active\"" if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
+                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), view_params)}" {active_attr if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
                         for user in users
                     )}
                   </div>
                 </th>
                 <th class="col-date">Submitted</th>
                 <th class="col-votes">Votes</th>
-                { '<th class=\"col-actions\">Actions</th>' if admin_view else '' }
+                { '<th class="col-actions">Actions</th>' if admin_view else '' }
               </tr>
             </thead>
             <tbody>{table_rows or '<tr><td colspan="5" class="muted">No URLs found.</td></tr>'}</tbody>
@@ -346,6 +390,12 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         result_code = query.get("result_code", [""])[0]
         user_id = query.get("user_id", [""])[0]
         admin_view = query.get("view", [""])[0] == "admin"
+        if admin_view and not self.is_admin():
+            if not self.current_user:
+                self.redirect_to_login(self.path or "/?view=admin")
+            else:
+                self.send_error(403, "Admin privileges required")
+            return
         export = query.get("export", [""])[0]
         error = query.get("error", [""])[0]
         if export:
@@ -389,7 +439,14 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         <div class="belt" style="margin:14px 0 18px;">{stat_cards}</div>
         {tools}
         """
-        self.respond_html(render_page("Net-Warden Dashboard", body, admin_view=admin_view))
+        self.respond_html(
+            render_page(
+                "Net-Warden Dashboard",
+                body,
+                admin_view=admin_view,
+                user=self.current_user,
+            )
+        )
 
     def render_urls(self, query):
         q = query.get("q", [""])[0]
@@ -398,7 +455,9 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         error = query.get("error", [""])[0]
         admin_view = query.get("view", [""])[0] == "admin"
         body = self.render_url_tools(q, result_code, user_id, error, "/urls", admin_view=admin_view)
-        self.respond_html(render_page("URLs", body, admin_view=admin_view))
+        self.respond_html(
+            render_page("URLs", body, admin_view=admin_view, user=self.current_user)
+        )
 
     def render_url_detail(self, url_id):
         try:
@@ -469,7 +528,65 @@ class NetWardenHandler(BaseHTTPRequestHandler):
           </div>
         </div>
         """
-        self.respond_html(render_page("URL Detail", body))
+        self.respond_html(render_page("URL Detail", body, user=self.current_user))
+
+    def render_login(self, query, error_message=None, email_value=""):
+        next_target = query.get("next", [""])[0]
+        error_text = error_message if error_message is not None else query.get("error", [""])[0]
+        info = (
+            f"<p class='muted'>You are currently signed in as {escape(self.current_user['name'])}. You can continue or <a href='/logout'>log out</a> to switch accounts.</p>"
+            if self.current_user
+            else ""
+        )
+        body = f"""
+        <div class=\"auth-container\">
+          <div class=\"card auth-card\">
+            <h1>Account Login</h1>
+            <p class=\"muted\">Sign in with your Net-Warden credentials.</p>
+            {f'<p class="error">{escape(error_text)}</p>' if error_text else ''}
+            <form method=\"POST\" action=\"/login\" class=\"stack\">
+              <input type=\"hidden\" name=\"next\" value=\"{escape(next_target)}\" />
+              <div>
+                <label for=\"email\">Email</label>
+                <input type=\"email\" id=\"email\" name=\"email\" required value=\"{escape(email_value or query.get('email', [''])[0])}\" />
+              </div>
+              <div>
+                <label for=\"password\">Password</label>
+                <input type=\"password\" id=\"password\" name=\"password\" required />
+              </div>
+              <button type=\"submit\" class=\"action-button\">Login</button>
+            </form>
+            {info}
+          </div>
+        </div>
+        """
+        self.respond_html(render_page("Sign In", body, user=self.current_user))
+
+    def process_login(self, form):
+        email = form.get("email", [""])[0].strip()
+        password = form.get("password", [""])[0]
+        next_target = form.get("next", [""])[0]
+        if not password or len(password) > 256 or any(ord(ch) < 32 for ch in password):
+            self.render_login({"next": [next_target]}, error_message="Password cannot be empty or contain control characters.", email_value=email)
+            return
+        user = verify_user_credentials(email, password)
+        if not user:
+            self.render_login({"next": [next_target]}, error_message="Invalid email or password.", email_value=email)
+            return
+        session_id, cookie_header = self.start_session(user)
+        target = self.clean_next_target(next_target)
+        self.send_response(303)
+        self.send_header("Location", target)
+        self.send_header("Set-Cookie", cookie_header)
+        self.end_headers()
+
+    def handle_logout(self):
+        cookie_header = self.expire_session()
+        self.send_response(303)
+        self.send_header("Location", "/")
+        if cookie_header:
+            self.send_header("Set-Cookie", cookie_header)
+        self.end_headers()
 
     def render_status_badge(self, code):
         label = code or "UNKNOWN"
@@ -479,6 +596,130 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         elif label.upper() == "LEGITIMATE":
             css = "pill-badge tag-success"
         return f'<span class="{css}">{escape(label)}</span>'
+
+    def redirect(self, target, cookies=None):
+        self.send_response(303)
+        self.send_header("Location", target)
+        if cookies:
+            for cookie in cookies:
+                self.send_header("Set-Cookie", cookie)
+        self.end_headers()
+
+    def redirect_to_login(self, next_url="/"):
+        safe_next = self.clean_next_target(next_url)
+        target = "/login"
+        if safe_next and safe_next != "/":
+            target += f"?next={urllib.parse.quote(safe_next, safe='/?:=&%')}"
+        self.redirect(target)
+
+    def clean_next_target(self, target):
+        if not target:
+            return "/"
+        parsed = urllib.parse.urlparse(target)
+        if parsed.scheme or parsed.netloc:
+            return "/"
+        path = parsed.path or "/"
+        if not path.startswith("/"):
+            path = "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        return path
+
+    def is_admin(self):
+        return bool(self.current_user and self.current_user.get("role") == "admin")
+
+    def require_admin(self, next_url="/"):
+        if self.is_admin():
+            return True
+        if not self.current_user:
+            safe_next = next_url or "/"
+            try:
+                parsed = urllib.parse.urlparse(safe_next)
+                safe_path = parsed.path or "/"
+                if parsed.query:
+                    safe_path = f"{safe_path}?{parsed.query}"
+            except ValueError:
+                safe_path = "/"
+            self.redirect_to_login(safe_path)
+        else:
+            self.send_error(403, "Admin privileges required")
+        return False
+
+    def require_login(self, next_url="/"):
+        if self.current_user:
+            return True
+        self.redirect_to_login(next_url)
+        return False
+
+    def get_current_user(self):
+        cookie_header = self.headers.get("Cookie")
+        if not cookie_header:
+            return None
+        cookie = http.cookies.SimpleCookie()
+        try:
+            cookie.load(cookie_header)
+        except http.cookies.CookieError:
+            return None
+        morsel = cookie.get(SESSION_COOKIE_NAME)
+        if not morsel:
+            return None
+        session_id = morsel.value
+        session = SESSIONS.get(session_id)
+        now = time.time()
+        if not session or session.get("expires_at", 0) < now:
+            if session_id in SESSIONS:
+                SESSIONS.pop(session_id, None)
+            return None
+        session["expires_at"] = now + SESSION_DURATION
+        self.active_session_id = session_id
+        return session
+
+    def start_session(self, user_row):
+        session_id = secrets.token_hex(32)
+        session_data = {
+            "user_id": user_row["user_id"],
+            "name": user_row["name"],
+            "email": user_row["email"],
+            "role": user_row["role"],
+            "expires_at": time.time() + SESSION_DURATION,
+        }
+        SESSIONS[session_id] = session_data
+        self.current_user = session_data
+        self.active_session_id = session_id
+        return session_id, self.build_session_cookie(session_id)
+
+    def build_session_cookie(self, session_id, max_age=SESSION_DURATION):
+        cookie = http.cookies.SimpleCookie()
+        cookie[SESSION_COOKIE_NAME] = session_id
+        cookie[SESSION_COOKIE_NAME]["path"] = "/"
+        cookie[SESSION_COOKIE_NAME]["httponly"] = True
+        cookie[SESSION_COOKIE_NAME]["samesite"] = "Lax"
+        if max_age is not None:
+            cookie[SESSION_COOKIE_NAME]["max-age"] = str(int(max_age))
+        return cookie.output(header="", sep="")
+
+    def expire_session(self):
+        session_id = getattr(self, "active_session_id", None)
+        if not session_id:
+            cookie_header = self.headers.get("Cookie")
+            if cookie_header:
+                cookie = http.cookies.SimpleCookie()
+                try:
+                    cookie.load(cookie_header)
+                except http.cookies.CookieError:
+                    cookie = None
+                if cookie and cookie.get(SESSION_COOKIE_NAME):
+                    session_id = cookie[SESSION_COOKIE_NAME].value
+        if session_id:
+            SESSIONS.pop(session_id, None)
+        cookie = http.cookies.SimpleCookie()
+        cookie[SESSION_COOKIE_NAME] = ""
+        cookie[SESSION_COOKIE_NAME]["path"] = "/"
+        cookie[SESSION_COOKIE_NAME]["httponly"] = True
+        cookie[SESSION_COOKIE_NAME]["samesite"] = "Lax"
+        cookie[SESSION_COOKIE_NAME]["max-age"] = "0"
+        cookie[SESSION_COOKIE_NAME]["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+        return cookie.output(header="", sep="")
 
     def respond_html(self, content):
         encoded = content.encode("utf-8")
