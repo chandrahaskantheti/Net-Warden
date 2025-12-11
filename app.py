@@ -24,10 +24,12 @@ import urllib.parse
 from db_helpers import (
     DB_PATH,
     cast_vote,
+    create_user,
     dashboard_data,
     delete_submission,
     get_admin_actions,
     get_contributor_stats,
+    get_feed_summary,
     get_connection,
     get_rule_effectiveness,
     get_rule_usage,
@@ -78,11 +80,10 @@ def render_page(title, body, admin_view=False, user=None, current_path="/"):
     if user and user.get("role") == "admin":
         nav_links.append(nav_link("/?view=admin", "Admin View", admin_view))
         nav_links.append(nav_link("/analytics", "Analytics", active_path.startswith("/analytics")))
-    session_block = (
-        f"<div class='session-chip'><div class='muted'>Signed in as</div><strong>{escape(user['name'])}</strong><span class='role-pill'>{escape(user['role'].title())}</span><a class='pill' href='/logout'>Logout</a></div>"
-        if user
-        else "<div class='session-chip'><a class='pill' href='/login'>Login</a></div>"
-    )
+    if user:
+        session_block = f"<div class='session-chip'><div class='muted'>Signed in as</div><strong>{escape(user['name'])}</strong><span class='role-pill'>{escape(user['role'].title())}</span><a class='pill' href='/logout'>Logout</a></div>"
+    else:
+        session_block = "<div class='session-chip'><a class='pill' href='/login'>Login</a><a class='pill secondary' href='/register'>Register</a></div>"
     nav = f"""
     <header class=\"topbar\">
       <div class=\"brand\"><a class=\"brand-link\" href=\"/\">Net-Warden</a></div>
@@ -157,6 +158,8 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             self.render_dashboard(query)
         elif path == "/login":
             self.render_login(query)
+        elif path == "/register":
+            self.render_register(query)
         elif path == "/logout":
             self.handle_logout()
         elif path == "/urls":
@@ -248,6 +251,11 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(content_length).decode()
             form = urllib.parse.parse_qs(body)
             self.process_login(form)
+        elif parsed.path == "/register":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            form = urllib.parse.parse_qs(body)
+            self.process_registration(form)
         elif parsed.path == "/vote":
             if not self.require_login(next_url=self.headers.get("Referer", "/")):
                 return
@@ -536,6 +544,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         risk_rankings = get_risk_rankings()
         rule_effectiveness = get_rule_effectiveness()
         admin_actions = get_admin_actions()
+        feed_summary = get_feed_summary()
 
         def fmt_pct(value):
             return f"{(value if value is not None else 0):.2f}%"
@@ -623,6 +632,21 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               <tbody>{rule_rows}</tbody>
             </table>
           </div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <h2>URLHaus Feed</h2>
+          <p class="muted">URLs imported from the phishing feed dataset.</p>
+          <div class="flex" style="gap:18px;">
+            <div>
+              <div class="muted">Total feed URLs</div>
+              <div class="stat-number" style="font-size:1.6rem;">{feed_summary['count']}</div>
+            </div>
+            <div>
+              <div class="muted">Last import</div>
+              <div>{format_datetime(feed_summary['last_import']) or '—'}</div>
+            </div>
+          </div>
+          <p class="muted" style="margin-top:12px;">Use the maintenance action below to pull fresh entries from <code>urlhaus_cleaned1.csv</code>.</p>
         </div>
         <div class="grid" style="margin-top:16px;">
           <div class="card">
@@ -761,6 +785,9 @@ class NetWardenHandler(BaseHTTPRequestHandler):
     def render_login(self, query, error_message=None, email_value=""):
         next_target = query.get("next", [""])[0]
         error_text = error_message if error_message is not None else query.get("error", [""])[0]
+        register_link = "/register"
+        if next_target:
+            register_link += f"?next={urllib.parse.quote(next_target, safe='/?:=&%')}"
         info = (
             f"<p class='muted'>You are currently signed in as {escape(self.current_user['name'])}. You can continue or <a href='/logout'>log out</a> to switch accounts.</p>"
             if self.current_user
@@ -784,6 +811,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               </div>
               <button type=\"submit\" class=\"action-button\">Login</button>
             </form>
+            <p class=\"muted\">Need an account? <a href=\"{register_link}\">Register here</a>.</p>
             {info}
           </div>
         </div>
@@ -802,6 +830,79 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             self.render_login({"next": [next_target]}, error_message="Invalid email or password.", email_value=email)
             return
         session_id, cookie_header = self.start_session(user)
+        target = self.clean_next_target(next_target)
+        self.send_response(303)
+        self.send_header("Location", target)
+        self.send_header("Set-Cookie", cookie_header)
+        self.end_headers()
+
+    def render_register(self, query, error_message=None, form_values=None):
+        next_target = query.get("next", [""])[0]
+        error_text = error_message if error_message is not None else query.get("error", [""])[0]
+        values = form_values or {}
+        login_link = "/login"
+        if next_target:
+            login_link += f"?next={urllib.parse.quote(next_target, safe='/?:=&%')}"
+        info = (
+            f"<p class='muted'>You are signed in as {escape(self.current_user['name'])}. <a href='/logout'>Logout</a> to create another account.</p>"
+            if self.current_user
+            else ""
+        )
+        body = f"""
+        <div class="auth-container">
+          <div class="card auth-card">
+            <h1>Create Account</h1>
+            <p class="muted">Join Net-Warden and start reporting URLs.</p>
+            {f'<p class="error">{escape(error_text)}</p>' if error_text else ''}
+            <form method="POST" action="/register" class="stack">
+              <input type="hidden" name="next" value="{escape(next_target)}" />
+              <div>
+                <label for="name">Full Name</label>
+                <input type="text" id="name" name="name" required maxlength="120" value="{escape(values.get('name', ''))}" />
+              </div>
+              <div>
+                <label for="reg-email">Email</label>
+                <input type="email" id="reg-email" name="email" required value="{escape(values.get('email', ''))}" />
+              </div>
+              <div>
+                <label for="reg-password">Password</label>
+                <input type="password" id="reg-password" name="password" required minlength="8" />
+              </div>
+              <button type="submit" class="action-button">Register</button>
+            </form>
+            <p class="muted">Already have an account? <a href="{login_link}">Login</a>.</p>
+            {info}
+          </div>
+        </div>
+        """
+        self.respond_html(render_page("Register", body, user=self.current_user, current_path=self.path))
+
+    def process_registration(self, form):
+        next_target = form.get("next", [""])[0]
+        name = form.get("name", [""])[0].strip()
+        email = form.get("email", [""])[0].strip()
+        password = form.get("password", [""])[0]
+        values = {"name": name, "email": email}
+        if self.current_user:
+            self.send_response(303)
+            self.send_header("Location", self.clean_next_target(next_target))
+            self.end_headers()
+            return
+        if not name or len(name) < 2:
+            self.render_register({"next": [next_target]}, error_message="Name must be at least 2 characters.", form_values=values)
+            return
+        if not email or "@" not in email or len(email) > 255:
+            self.render_register({"next": [next_target]}, error_message="Please provide a valid email.", form_values=values)
+            return
+        if not password or len(password) < 8 or any(ord(ch) < 32 for ch in password):
+            self.render_register({"next": [next_target]}, error_message="Password must be at least 8 characters with no control characters.", form_values=values)
+            return
+        try:
+            user_row = create_user(name, email, password)
+        except ValueError as exc:
+            self.render_register({"next": [next_target]}, error_message=str(exc), form_values=values)
+            return
+        session_id, cookie_header = self.start_session(user_row)
         target = self.clean_next_target(next_target)
         self.send_response(303)
         self.send_header("Location", target)

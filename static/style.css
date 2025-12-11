@@ -186,6 +186,11 @@ button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(0,0,0,0
   font-weight: 700;
   border: 1px solid var(--accent);
 }
+.session-chip a.pill.secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
 .session-chip a.pill:hover {
   color: #0d1b2a;
   border-color: #c1f0e4;

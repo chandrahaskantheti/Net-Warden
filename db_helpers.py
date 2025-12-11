@@ -1,3 +1,4 @@
+import csv
 from datetime import datetime
 import hashlib
 import hmac
@@ -10,6 +11,8 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "database" / "net_warden.db"
 PASSWORD_SCHEME = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 390000
+FEED_USER_EMAIL = "urlhaus-feed@net-warden.local"
+FEED_USER_NAME = "URLHaus Feed"
 
 
 def get_connection():
@@ -70,6 +73,46 @@ def set_user_password(user_id: int, password: str):
         conn.execute("UPDATE users SET password_hash = ? WHERE user_id = ?", (encoded, user_id))
         conn.commit()
     return encoded
+
+
+def create_user(name: str, email: str, password: str):
+    encoded = hash_password(password)
+    with get_connection() as conn:
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO users (name, email, password_hash, role)
+                VALUES (?, ?, ?, 'user')
+                """,
+                (name, email, encoded),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("Email is already registered.") from exc
+        user_id = cursor.lastrowid
+        row = conn.execute(
+            "SELECT user_id, name, email, role FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return row
+
+
+def _ensure_feed_user(conn):
+    row = conn.execute(
+        "SELECT user_id FROM users WHERE email = ?",
+        (FEED_USER_EMAIL,),
+    ).fetchone()
+    if row:
+        return row["user_id"]
+    password = secrets.token_urlsafe(16)
+    conn.execute(
+        "INSERT INTO users (name, email, role, password_hash) VALUES (?, ?, ?, ?)",
+        (FEED_USER_NAME, FEED_USER_EMAIL, "analyst", hash_password(password)),
+    )
+    return conn.execute(
+        "SELECT user_id FROM users WHERE email = ?",
+        (FEED_USER_EMAIL,),
+    ).fetchone()["user_id"]
 
 
 def parse_url_parts(raw_url: str) -> Tuple[str, Optional[str]]:
@@ -325,6 +368,67 @@ def delete_submission(url_id: int):
     return True, None
 
 
+def import_urlhaus_feed(limit: int = 250):
+    csv_path = BASE_DIR / "urlhaus_cleaned1.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Dataset not found at {csv_path}")
+    inserted = 0
+    skipped = 0
+    with get_connection() as conn:
+        feed_user_id = _ensure_feed_user(conn)
+        with csv_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                if limit and inserted >= limit:
+                    break
+                url = (row.get("url") or "").strip()
+                if not url:
+                    continue
+                domain, tld = parse_url_parts(url)
+                created_at = (row.get("dateadded") or None)
+                threat = (row.get("threat") or "Threat").strip()
+                url_status = (row.get("url_status") or "unknown").strip()
+                tags = (row.get("tags") or "n/a").strip()
+                last_online = (row.get("last_online") or None)
+                result_code = "PHISHING"
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO url_submissions (user_id, url, url_domain, tld, result_code, created_at)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                    """,
+                    (feed_user_id, url, domain, tld, result_code, created_at),
+                )
+                url_row = conn.execute(
+                    "SELECT url_id FROM url_submissions WHERE url = ?",
+                    (url,),
+                ).fetchone()
+                if not url_row:
+                    continue
+                url_id = url_row["url_id"]
+                if cursor.rowcount == 1:
+                    inserted += 1
+                    description = (
+                        f"Status: {url_status or 'unknown'}; Tags: {tags or 'n/a'}; Last seen: {last_online or 'n/a'}."
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO statuses (url_id, reviewer_id, result_code, label, description, created_at)
+                        VALUES (?, NULL, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                        """,
+                        (
+                            url_id,
+                            result_code,
+                            f"URLHaus: {threat}",
+                            description,
+                            last_online or created_at,
+                        ),
+                    )
+                else:
+                    skipped += 1
+        conn.commit()
+    return inserted, skipped
+
+
 def get_contributor_stats(limit: int = 10):
     with get_connection() as conn:
         return conn.execute(
@@ -346,6 +450,25 @@ def get_contributor_stats(limit: int = 10):
             """,
             (limit,),
         ).fetchall()
+
+
+def get_feed_summary():
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id FROM users WHERE email = ?",
+            (FEED_USER_EMAIL,),
+        ).fetchone()
+        if not row:
+            return {"count": 0, "last_import": None}
+        summary = conn.execute(
+            """
+            SELECT COUNT(*) AS total, MAX(created_at) AS last_import
+            FROM url_submissions
+            WHERE user_id = ?
+            """,
+            (row["user_id"],),
+        ).fetchone()
+    return {"count": summary["total"], "last_import": summary["last_import"]}
 
 
 def get_rule_usage():
@@ -680,6 +803,11 @@ def _auto_classify_pending():
         return cursor.rowcount
 
 
+def _run_urlhaus_import():
+    inserted, skipped = import_urlhaus_feed(limit=250)
+    return inserted, f"Imported {inserted} URLs (skipped {skipped})."
+
+
 ADMIN_ACTIONS = {
     "reclassify_votes": {
         "label": "Apply vote-driven classification",
@@ -711,6 +839,11 @@ ADMIN_ACTIONS = {
         "description": "Set statuses for submissions lacking result codes based on rule matches (Statement 20).",
         "runner": _auto_classify_pending,
     },
+    "import_urlhaus": {
+        "label": "Import URLHaus feed",
+        "description": "Load new threat URLs from urlhaus_cleaned1.csv (limited batch).",
+        "runner": _run_urlhaus_import,
+    },
 }
 
 
@@ -727,7 +860,16 @@ def run_admin_action(action_id: str):
         return False, "Unknown maintenance task."
     runner = action["runner"]
     try:
-        affected = runner()
+        result = runner()
     except sqlite3.Error as exc:
         return False, f"Could not execute action: {exc}"
-    return True, f"{action['label']} complete. Rows affected: {affected}."
+    extra_msg = None
+    affected = result
+    if isinstance(result, tuple):
+        affected, extra_msg = result
+    message = f"{action['label']} complete."
+    if extra_msg:
+        message += f" {extra_msg}"
+    else:
+        message += f" Rows affected: {affected}."
+    return True, message
