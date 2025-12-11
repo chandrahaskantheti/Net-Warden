@@ -103,7 +103,11 @@ th { color: var(--muted); font-size: 0.95rem; font-weight: 700; }
 .tag-warn { background: rgba(255,184,0,0.18); color: #ffd166; }
 form { display: grid; gap: 12px; }
 label { display: block; font-weight: 700; margin-bottom: 6px; }
-input[type="text"], select, textarea {
+input[type="text"],
+input[type="email"],
+input[type="password"],
+select,
+textarea {
   width: 100%;
   background: #0f1f33;
   border: 1px solid var(--border);
