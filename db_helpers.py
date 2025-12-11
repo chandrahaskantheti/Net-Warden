@@ -176,8 +176,10 @@ def search_urls(
         params.append(user_id)
 
     viewer_select = "NULL AS current_user_vote"
-    viewer_params: list = []
     if viewer_user_id is not None:
+        # The placeholder for viewer_user_id appears before the WHERE clause, so it
+        # must be the first bound parameter.
+        params = [viewer_user_id] + params
         viewer_select = """
             (
                 SELECT vote_value
@@ -186,7 +188,6 @@ def search_urls(
                 LIMIT 1
             ) AS current_user_vote
         """
-        viewer_params.append(viewer_user_id)
 
     with get_connection() as conn:
         rows = conn.execute(
@@ -205,7 +206,7 @@ def search_urls(
             LIMIT 100
             """
             ,
-            params + viewer_params,
+            params,
         ).fetchall()
         users = conn.execute(
             "SELECT user_id, name, email, role FROM users ORDER BY role, name"
