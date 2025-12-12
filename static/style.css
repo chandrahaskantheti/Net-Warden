@@ -83,6 +83,7 @@ th, td {
 }
 th.col-url, td.col-url { width: 40%; }
 th.col-status, td.col-status { width: 14%; }
+th.col-rule, td.col-rule { width: 14%; }
 th.col-submitter, td.col-submitter { width: 17%; }
 th.col-date, td.col-date { width: 13%; }
 th.col-votes, td.col-votes { width: 8%; }
