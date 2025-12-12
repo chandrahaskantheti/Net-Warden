@@ -161,6 +161,7 @@ def search_urls(
     query_text: str = "",
     result_code: str = "",
     user_id: Optional[str] = None,
+    rule_id: Optional[str] = None,
     viewer_user_id: Optional[int] = None,
 ):
     query_text = f"%{query_text.lower()}%" if query_text else "%"
@@ -174,6 +175,14 @@ def search_urls(
     if user_id:
         where_clause += " AND u.user_id = ?"
         params.append(user_id)
+    if rule_id:
+        where_clause += """
+            AND EXISTS (
+                SELECT 1 FROM url_rule_matches urm_filter
+                WHERE urm_filter.url_id = u.url_id AND urm_filter.rule_id = ?
+            )
+        """
+        params.append(rule_id)
 
     viewer_select = "NULL AS current_user_vote"
     if viewer_user_id is not None:
@@ -194,12 +203,24 @@ def search_urls(
             f"""
             SELECT u.url_id, u.url, u.url_domain, u.tld, u.result_code, u.created_at,
                    usr.name AS submitter,
-                   COALESCE(SUM(CASE WHEN v.vote_value = 1 THEN 1 ELSE 0 END), 0) AS phishing_votes,
-                   COALESCE(SUM(CASE WHEN v.vote_value = -1 THEN 1 ELSE 0 END), 0) AS legitimate_votes,
+                   COALESCE(vs.phishing_votes, 0) AS phishing_votes,
+                   COALESCE(vs.legitimate_votes, 0) AS legitimate_votes,
+                   COALESCE(rs.rule_count, 0) AS rule_count,
                    {viewer_select}
             FROM url_submissions u
             JOIN users usr ON u.user_id = usr.user_id
-            LEFT JOIN votes v ON u.url_id = v.url_id
+            LEFT JOIN (
+                SELECT url_id,
+                       SUM(CASE WHEN vote_value = 1 THEN 1 ELSE 0 END) AS phishing_votes,
+                       SUM(CASE WHEN vote_value = -1 THEN 1 ELSE 0 END) AS legitimate_votes
+                FROM votes
+                GROUP BY url_id
+            ) vs ON vs.url_id = u.url_id
+            LEFT JOIN (
+                SELECT url_id, COUNT(DISTINCT rule_id) AS rule_count
+                FROM url_rule_matches
+                GROUP BY url_id
+            ) rs ON rs.url_id = u.url_id
             {where_clause}
             GROUP BY u.url_id, u.url, u.url_domain, u.tld, u.result_code, u.created_at, usr.name
             ORDER BY u.created_at DESC
@@ -214,7 +235,7 @@ def search_urls(
     return rows, users
 
 
-def status_counts(query_text: str = "", user_id: Optional[str] = None):
+def status_counts(query_text: str = "", user_id: Optional[str] = None, rule_id: Optional[str] = None):
     query_text = f"%{query_text.lower()}%" if query_text else "%"
     where_clause = """
         WHERE (LOWER(u.url) LIKE ? OR LOWER(u.url_domain) LIKE ?)
@@ -223,6 +244,13 @@ def status_counts(query_text: str = "", user_id: Optional[str] = None):
     if user_id:
         where_clause += " AND u.user_id = ?"
         params.append(user_id)
+    if rule_id:
+        where_clause += """
+            AND EXISTS (
+                SELECT 1 FROM url_rule_matches urm WHERE urm.url_id = u.url_id AND urm.rule_id = ?
+            )
+        """
+        params.append(rule_id)
     with get_connection() as conn:
         rows = conn.execute(
             f"""
@@ -237,7 +265,7 @@ def status_counts(query_text: str = "", user_id: Optional[str] = None):
     return {row["result_code"] or "": row["count"] for row in rows}
 
 
-def user_counts(query_text: str = "", result_code: str = ""):
+def user_counts(query_text: str = "", result_code: str = "", rule_id: Optional[str] = None):
     query_text = f"%{query_text.lower()}%" if query_text else "%"
     where_clause = """
         WHERE (LOWER(u.url) LIKE ? OR LOWER(u.url_domain) LIKE ?)
@@ -246,6 +274,13 @@ def user_counts(query_text: str = "", result_code: str = ""):
     if result_code:
         where_clause += " AND u.result_code = ?"
         params.append(result_code)
+    if rule_id:
+        where_clause += """
+            AND EXISTS (
+                SELECT 1 FROM url_rule_matches urm WHERE urm.url_id = u.url_id AND urm.rule_id = ?
+            )
+        """
+        params.append(rule_id)
     with get_connection() as conn:
         rows = conn.execute(
             f"""
@@ -258,6 +293,17 @@ def user_counts(query_text: str = "", result_code: str = ""):
             params,
         ).fetchall()
     return {row["user_id"]: row["count"] for row in rows}
+
+
+def list_rules():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT rule_id, rule_name, rule_type, risk_level
+            FROM rules
+            ORDER BY rule_name
+            """
+        ).fetchall()
 
 
 def url_details(url_id: int):
@@ -275,11 +321,29 @@ def url_details(url_id: int):
             return None
         rules = conn.execute(
             """
-            SELECT r.rule_name, r.risk_level, r.rule_type, urm.match_details, urm.matched_at
+            SELECT urm.match_id,
+                   urm.rule_id,
+                   r.rule_name,
+                   r.risk_level,
+                   r.rule_type,
+                   urm.match_details,
+                   urm.matched_at
             FROM url_rule_matches urm
             JOIN rules r ON urm.rule_id = r.rule_id
             WHERE urm.url_id = ?
             ORDER BY r.risk_level DESC, r.rule_name
+            """,
+            (url_id,),
+        ).fetchall()
+        available_rules = conn.execute(
+            """
+            SELECT r.rule_id, r.rule_name, r.rule_type, r.risk_level
+            FROM rules r
+            WHERE NOT EXISTS (
+                SELECT 1 FROM url_rule_matches urm
+                WHERE urm.url_id = ? AND urm.rule_id = r.rule_id
+            )
+            ORDER BY r.rule_name
             """,
             (url_id,),
         ).fetchall()
@@ -315,6 +379,7 @@ def url_details(url_id: int):
     return {
         "url": url_row,
         "rules": rules,
+        "available_rules": available_rules,
         "statuses": statuses,
         "votes": votes,
         "scores": scores,
@@ -367,6 +432,37 @@ def delete_submission(url_id: int):
         except sqlite3.Error as exc:
             return False, f"Could not delete URL: {exc}"
     return True, None
+
+
+def add_rule_match(url_id: int, rule_id: int, match_details: Optional[str] = None):
+    with get_connection() as conn:
+        try:
+            conn.execute(
+                """
+                INSERT INTO url_rule_matches (url_id, rule_id, match_details)
+                VALUES (?, ?, ?)
+                """,
+                (url_id, rule_id, match_details or None),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            message = "Rule already applied to this URL." if "UNIQUE" in str(exc).upper() else f"Could not add rule: {exc}"
+            return False, message
+        except sqlite3.Error as exc:
+            return False, f"Could not add rule: {exc}"
+    return True, "Rule added."
+
+
+def remove_rule_match(match_id: int, url_id: int):
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM url_rule_matches WHERE match_id = ? AND url_id = ?",
+            (match_id, url_id),
+        )
+        conn.commit()
+        if cursor.rowcount == 0:
+            return False, "Rule match not found."
+    return True, "Rule removed."
 
 
 def import_urlhaus_feed(limit: int = 250):

@@ -23,6 +23,7 @@ import urllib.parse
 
 from db_helpers import (
     DB_PATH,
+    add_rule_match,
     cast_vote,
     create_user,
     dashboard_data,
@@ -31,12 +32,14 @@ from db_helpers import (
     get_contributor_stats,
     get_feed_summary,
     get_connection,
+    list_rules,
     get_rule_effectiveness,
     get_rule_usage,
     get_risk_rankings,
     get_user_vote,
     get_vote_conflicts,
     insert_submission,
+    remove_rule_match,
     run_admin_action,
     search_urls,
     status_counts,
@@ -276,6 +279,47 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             self.send_response(303)
             self.send_header("Location", f"{target}{sep}{qs}")
             self.end_headers()
+        elif parsed.path == "/rule-match/add":
+            if not self.require_login(next_url=self.headers.get("Referer", "/")):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            form = urllib.parse.parse_qs(body)
+            try:
+                url_id = int(form.get("url_id", [0])[0])
+                rule_id = int(form.get("rule_id", [0])[0])
+            except ValueError:
+                self.send_error(400, "Invalid input")
+                return
+            details = form.get("match_details", [""])[0].strip()
+            ok, msg = add_rule_match(url_id, rule_id, details[:500] or None)
+            referer = self.headers.get("Referer", f"/url/{url_id}")
+            target = self.clean_next_target(referer) or f"/url/{url_id}"
+            qs = urllib.parse.urlencode({("status" if ok else "error"): msg})
+            sep = "&" if "?" in target else "?"
+            self.send_response(303)
+            self.send_header("Location", f"{target}{sep}{qs}")
+            self.end_headers()
+        elif parsed.path == "/rule-match/remove":
+            if not self.require_login(next_url=self.headers.get("Referer", "/")):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode()
+            form = urllib.parse.parse_qs(body)
+            try:
+                url_id = int(form.get("url_id", [0])[0])
+                match_id = int(form.get("match_id", [0])[0])
+            except ValueError:
+                self.send_error(400, "Invalid input")
+                return
+            ok, msg = remove_rule_match(match_id, url_id)
+            referer = self.headers.get("Referer", f"/url/{url_id}")
+            target = self.clean_next_target(referer) or f"/url/{url_id}"
+            qs = urllib.parse.urlencode({("status" if ok else "error"): msg})
+            sep = "&" if "?" in target else "?"
+            self.send_response(303)
+            self.send_header("Location", f"{target}{sep}{qs}")
+            self.end_headers()
         elif parsed.path == "/admin-action":
             if not self.require_admin(next_url=self.headers.get("Referer", "/analytics")):
                 return
@@ -291,7 +335,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    def filter_link(self, action_path, q, status, user_id, extra_params=None):
+    def filter_link(self, action_path, q, status, user_id, rule_id, extra_params=None):
         query = {}
         if q:
             query["q"] = q
@@ -299,18 +343,21 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             query["result_code"] = status
         if user_id:
             query["user_id"] = user_id
+        if rule_id:
+            query["rule_id"] = rule_id
         if extra_params:
             query.update(extra_params)
         qs = urllib.parse.urlencode(query)
         return f"{action_path}?{qs}" if qs else action_path
 
-    def render_url_tools(self, q, result_code, user_id, error, action_path, admin_view=False, status_message=""):
+    def render_url_tools(self, q, result_code, user_id, rule_id, error, action_path, admin_view=False, status_message=""):
         viewer_user_id = self.current_user["user_id"] if self.current_user else None
-        rows, users = search_urls(q, result_code, user_id, viewer_user_id=viewer_user_id)
-        status_totals = status_counts(q, user_id)
-        user_totals = user_counts(q, result_code)
+        rows, users = search_urls(q, result_code, user_id, rule_id, viewer_user_id=viewer_user_id)
+        status_totals = status_counts(q, user_id, rule_id)
+        user_totals = user_counts(q, result_code, rule_id)
+        rule_catalog = list_rules()
         table_rows = ""
-        column_count = 5 + (1 if self.current_user else 0) + (1 if admin_view else 0)
+        column_count = 6 + (1 if self.current_user else 0) + (1 if admin_view else 0)
         for row in rows:
             vote_cell = ""
             if self.current_user:
@@ -325,12 +372,15 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                     f'<button class="btn-danger btn-icon" type="submit" title="Delete">&#128465;</button>'
                     f"</form></td>"
                 )
+            rule_count = row["rule_count"] or 0
+            rule_label = "rule" if rule_count == 1 else "rules"
             table_rows += f"""
             <tr>
               <td><a href="/url/{row['url_id']}">{escape(row['url'])}</a>
                 <div class="muted">{escape(row['url_domain'])}</div>
               </td>
               <td>{self.render_status_badge(row['result_code'])}</td>
+              <td class="col-rule">{rule_count} {rule_label}</td>
               <td>{escape(row['submitter'])}</td>
               <td>{format_datetime(row['created_at'])}</td>
               <td class="muted">+{row['phishing_votes']} / -{row['legitimate_votes']}</td>
@@ -339,7 +389,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             </tr>
             """
         view_params = {"view": "admin"} if admin_view else None
-        current_link = self.filter_link(action_path, q, result_code, user_id, view_params)
+        current_link = self.filter_link(action_path, q, result_code, user_id, rule_id, view_params)
         login_href = "/login"
         safe_next = self.clean_next_target(current_link)
         if safe_next and safe_next != "/":
@@ -381,15 +431,21 @@ class NetWardenHandler(BaseHTTPRequestHandler):
               <p class="muted">Please <a href="{login_href}">log in</a> to submit URLs for review.</p>
             </div>
             """
-        has_filters = bool(q or result_code or user_id)
+        has_filters = bool(q or result_code or user_id or rule_id)
         active_attr = 'class="active"'
-        reset_href = self.filter_link(action_path, "", "", "", view_params)
+        reset_href = self.filter_link(action_path, "", "", "", "", view_params)
         extra = {"export": "1"}
         if admin_view:
             extra["view"] = "admin"
-        export_href = self.filter_link(action_path, q, result_code, user_id, extra)
+        export_href = self.filter_link(action_path, q, result_code, user_id, rule_id, extra)
         status_class = "mini-filter col-status" + (" active" if result_code else "")
         submitter_class = "mini-filter col-submitter" + (" active" if user_id else "")
+        rule_filter_class = "mini-filter col-rule" + (" active" if rule_id else "")
+        rule_links = "".join(
+            f'<a href="{self.filter_link(action_path, q, result_code, user_id, str(rule["rule_id"]), view_params)}"'
+            f'{" " + active_attr if str(rule_id) == str(rule["rule_id"]) else ""}>{escape(rule["rule_name"])} — {escape(rule["rule_type"] or "n/a")}</a>'
+            for rule in rule_catalog
+        ) or "<div class='muted'>No rules configured.</div>"
         vote_header = '<th class="col-user-vote">Your Vote</th>' if self.current_user else ''
         empty_row = table_rows or f'<tr><td colspan="{column_count}" class="muted">No URLs found.</td></tr>'
         flash_block = ""
@@ -417,9 +473,10 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                       <input type="text" name="q" value="{escape(q)}" placeholder="Search domain or URL" />
                       {f'<input type="hidden" name="result_code" value="{escape(result_code)}" />' if result_code else ''}
                       {f'<input type="hidden" name="user_id" value="{escape(user_id)}" />' if user_id else ''}
+                      {f'<input type="hidden" name="rule_id" value="{escape(rule_id)}" />' if rule_id else ''}
                       { '<input type="hidden" name="view" value="admin" />' if admin_view else '' }
                       <div class="flex" style="justify-content: flex-end; gap:8px;">
-                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, view_params)}">Clear</a>
+                        <a class="reset-link export enabled" href="{self.filter_link(action_path, '', result_code, user_id, rule_id, view_params)}">Clear</a>
                         <button type="submit" class="reset-link enabled" style="border:none;">Apply</button>
                       </div>
                     </form>
@@ -428,18 +485,25 @@ class NetWardenHandler(BaseHTTPRequestHandler):
                 <th class="{status_class}">
                   <button type="button" class="filter-toggle">Status ▾</button>
                   <div class="mini-filters">
-                    <a href="{self.filter_link(action_path, q, '', user_id, view_params)}" {active_attr if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
-                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, view_params)}" {active_attr if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
-                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, view_params)}" {active_attr if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
-                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, view_params)}" {active_attr if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, '', user_id, rule_id, view_params)}" {active_attr if not result_code else ""}>All statuses ({sum(status_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, 'PHISHING', user_id, rule_id, view_params)}" {active_attr if result_code == "PHISHING" else ""}>Phishing ({status_totals.get('PHISHING', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'SUSPICIOUS', user_id, rule_id, view_params)}" {active_attr if result_code == "SUSPICIOUS" else ""}>Suspicious ({status_totals.get('SUSPICIOUS', 0)})</a>
+                    <a href="{self.filter_link(action_path, q, 'LEGITIMATE', user_id, rule_id, view_params)}" {active_attr if result_code == "LEGITIMATE" else ""}>Legitimate ({status_totals.get('LEGITIMATE', 0)})</a>
+                  </div>
+                </th>
+                <th class="{rule_filter_class}">
+                  <button type="button" class="filter-toggle">Rule ▾</button>
+                  <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
+                    <a href="{self.filter_link(action_path, q, result_code, user_id, '', view_params)}" {active_attr if not rule_id else ""}>All rules</a>
+                    {rule_links}
                   </div>
                 </th>
                 <th class="{submitter_class}">
                   <button type="button" class="filter-toggle">Submitter ▾</button>
                   <div class="mini-filters" style="max-height: 320px; overflow-y: auto;">
-                    <a href="{self.filter_link(action_path, q, result_code, '', view_params)}" {active_attr if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
+                    <a href="{self.filter_link(action_path, q, result_code, '', rule_id, view_params)}" {active_attr if not user_id else ""}>All submitters ({sum(user_totals.values()) or len(rows)})</a>
                     {''.join(
-                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), view_params)}" {active_attr if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
+                        f'<a href="{self.filter_link(action_path, q, result_code, str(user["user_id"]), rule_id, view_params)}" {active_attr if str(user_id) == str(user["user_id"]) else ""}>{escape(user["name"])} — {escape(user["role"])} ({user_totals.get(user["user_id"], 0)})</a>'
                         for user in users
                     )}
                   </div>
@@ -459,6 +523,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
         user_id = query.get("user_id", [""])[0]
+        rule_id = query.get("rule_id", [""])[0]
         admin_view = query.get("view", [""])[0] == "admin"
         viewer_user_id = self.current_user["user_id"] if self.current_user else None
         if admin_view and not self.is_admin():
@@ -471,7 +536,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         error = query.get("error", [""])[0]
         status_msg = query.get("status", [""])[0]
         if export:
-            rows, _users = search_urls(q, result_code, user_id, viewer_user_id=viewer_user_id)
+            rows, _users = search_urls(q, result_code, user_id, rule_id, viewer_user_id=viewer_user_id)
             self.export_csv(rows)
             return
         data = dashboard_data()
@@ -504,7 +569,16 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             </div>
           </div>
         """
-        tools = self.render_url_tools(q, result_code, user_id, error, "/", admin_view=admin_view, status_message=status_msg)
+        tools = self.render_url_tools(
+            q,
+            result_code,
+            user_id,
+            rule_id,
+            error,
+            "/",
+            admin_view=admin_view,
+            status_message=status_msg,
+        )
         body = f"""
         <h1 style="margin-bottom:4px;">Security Pulse</h1>
         <p class="muted">Snapshot of submissions, statuses, and votes.</p>
@@ -525,10 +599,20 @@ class NetWardenHandler(BaseHTTPRequestHandler):
         q = query.get("q", [""])[0]
         result_code = query.get("result_code", [""])[0]
         user_id = query.get("user_id", [""])[0]
+        rule_id = query.get("rule_id", [""])[0]
         error = query.get("error", [""])[0]
         admin_view = query.get("view", [""])[0] == "admin"
         status_msg = query.get("status", [""])[0]
-        body = self.render_url_tools(q, result_code, user_id, error, "/urls", admin_view=admin_view, status_message=status_msg)
+        body = self.render_url_tools(
+            q,
+            result_code,
+            user_id,
+            rule_id,
+            error,
+            "/urls",
+            admin_view=admin_view,
+            status_message=status_msg,
+        )
         self.respond_html(
             render_page("URLs", body, admin_view=admin_view, user=self.current_user, current_path=self.path)
         )
@@ -704,11 +788,68 @@ class NetWardenHandler(BaseHTTPRequestHandler):
             user_vote = get_user_vote(url_id_int, self.current_user["user_id"])
         phishing_votes = sum(1 for v in data["votes"] if v["vote_value"] == 1)
         legitimate_votes = sum(1 for v in data["votes"] if v["vote_value"] == -1)
-        rules_rows = "".join(
-            f"<li><strong>{escape(r['rule_name'])}</strong> · {escape(r['rule_type'])} · {escape(r['risk_level'])}"
-            f"<div class='muted'>{escape(r['match_details'])}</div></li>"
-            for r in data["rules"]
-        ) or "<li class='muted'>No rules recorded.</li>"
+        rule_items = []
+        for r in data["rules"]:
+            details = escape(r["match_details"] or "")
+            detail_block = f"<div class='muted'>{details}</div>" if details else ""
+            timestamp = format_datetime(r["matched_at"]) or ""
+            remove_form = ""
+            if self.current_user:
+                remove_form = f"""
+                <form method="POST" action="/rule-match/remove" style="display:inline;" onsubmit="return confirm('Remove this rule match?');">
+                  <input type="hidden" name="url_id" value="{url_row['url_id']}" />
+                  <input type="hidden" name="match_id" value="{r['match_id']}" />
+                  <button type="submit" class="btn-danger btn-icon" style="padding:6px 10px; font-size:0.85rem;">Remove</button>
+                </form>
+                """
+            timestamp_block = f"<span class='muted'>{timestamp}</span>"
+            if self.current_user:
+                timestamp_block = f"<div class='flex' style='gap:6px; align-items:center;'>{timestamp_block}{remove_form}</div>"
+            rule_items.append(
+                f"""
+                <li>
+                  <div class="status-line">
+                    <div><strong>{escape(r['rule_name'])}</strong> · {escape(r['rule_type'])} · {escape(r['risk_level'])}</div>
+                    {timestamp_block}
+                  </div>
+                  {detail_block}
+                </li>
+                """
+            )
+        rules_rows = "".join(rule_items) or "<li class='muted'>No rules recorded.</li>"
+        available_rule_options = "".join(
+            f"<option value='{r['rule_id']}'>{escape(r['rule_name'])} · {escape(r['rule_type'] or 'n/a')} · {escape(r['risk_level'] or 'n/a')}</option>"
+            for r in data["available_rules"]
+        )
+        rule_manage_block = ""
+        if self.current_user:
+            if data["available_rules"]:
+                select_id = f"rule_id_{url_row['url_id']}"
+                details_id = f"rule_details_{url_row['url_id']}"
+                rule_manage_block = f"""
+                <div style="margin-top:16px;">
+                  <h4 style="margin:0 0 8px;">Add Rule Match</h4>
+                  <form method="POST" action="/rule-match/add" class="stack">
+                    <input type="hidden" name="url_id" value="{url_row['url_id']}" />
+                    <div>
+                      <label for="{select_id}">Rule</label>
+                      <select id="{select_id}" name="rule_id" required>
+                        <option value="">Select a rule</option>
+                        {available_rule_options}
+                      </select>
+                    </div>
+                    <div>
+                      <label for="{details_id}">Notes (optional)</label>
+                      <textarea id="{details_id}" name="match_details" rows="2" placeholder="Describe why this rule applies."></textarea>
+                    </div>
+                    <button type="submit" class="action-button secondary">Add Rule</button>
+                  </form>
+                </div>
+                """
+            else:
+                rule_manage_block = "<p class='muted' style='margin-top:12px;'>All available rules already match this URL.</p>"
+        else:
+            rule_manage_block = "<p class='muted' style='margin-top:12px;'>Log in to manage rule matches.</p>"
         status_rows = "".join(
             f"<li><div class='status-line'>{self.render_status_badge(s['result_code'])}<span class='muted'>{format_datetime(s['created_at'])}</span></div>"
             f"<div><strong>{escape(s['label'])}</strong> — {escape(s['reviewer_name'] or 'Unassigned')}</div>"
@@ -763,6 +904,7 @@ class NetWardenHandler(BaseHTTPRequestHandler):
           <div class="card">
             <h3>Rule Matches</h3>
             <ul class="stack" style="padding-left:18px; list-style: disc;">{rules_rows}</ul>
+            {rule_manage_block}
           </div>
           <div class="card">
             <h3>Votes</h3>
